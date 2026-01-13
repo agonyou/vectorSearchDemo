@@ -25,8 +25,83 @@ What this repo contains
  - `data.json`: sample or preprocessed data used by the demo (email rows and metadata).
  - (Future) code snippets demonstrating how to index embeddings in Couchbase and run composite vector queries.
 
-# Getting started
+# Step 1: Loading the data
 
 The data must first be loaded into Couchbase. The script `load.py` will load a given number of emails into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
 
+data.json excerpt:
+```javascript
+[
+    {
+        "sender": ["\"Bob Smith\" <bobsmith@gmail.com>"],
+        "receivers": {
+            "to": ["\"Mike Muldoon\" <mmuldoon@gmail.com>"],
+            "cc": ["\"Steve Hunter\" <hunter@gmail.com>"],
+            "bcc": ["\"Ron Kochendorfer\" <kokain9@gmail.com>"]
+        },
+        "timestamp": "2009-12-18 01:48:29.77933",
+        "contents": "body of email"
+    },
+    // ... etc ...
+]
+```
+
+You can load this file with this command:
+
+```bash
+python load.py --data data.json
+```
+
+When stored in Couchbase as a document with an embedding, the document would look like this:
+
+```javascript
+[
+    key: 
+    {
+        "sender": ["\"Bob Smith\" <bobsmith@gmail.com>"],
+        "receivers": {
+            "to": ["\"Mike Muldoon\" <mmuldoon@gmail.com>"],
+            "cc": ["\"Steve Hunter\" <hunter@gmail.com>"],
+            "bcc": ["\"Ron Kochendorfer\" <kokain9@gmail.com>"]
+        },
+        "timestamp": "2009-12-18 01:48:29.77933",
+        "contents": "body of email",
+        "embedding": [0.0123, -0.8471, ... etc ...]
+    },
+    // ... etc ...
+]
+```
+
 Alternatively, the embeddings can be automatically generated on the fly with Capella AI Services with a [Process and Vectorize Unstructed Data workflow](https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html). This approach will greatly simplify your AI application development, and separates the data processing from your application code.
+
+When embedding with AI Services, that "embedding" field would be automatically created/updated whenever the document itself is created/updated. Furthermore, AI Services can use either an external Open AI type of model, or a private model hosted in Capella itself. (A private model could also be used in `load.py`).
+
+`load.py` loads data into an "email" bucket, in the _default scope and _default collection.
+
+# Step 2: Create the index
+
+Once the data is loaded, create a [Composite Vector Index](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
+
+```SQL
+CREATE INDEX `idx_comp_vector_email` ON `email`.`_default`.`_default`
+       (`embedding` VECTOR, sender, receivers)
+       WITH {  "dimension":1536 , "similarity":"DOT", "description":"IVF,SQ8"};
+```
+
+`DOT` similarity is used because it's good for comparing text content.
+
+Test the index with a query like:
+
+```SQL
+WITH anEmail AS (
+    SELECT RAW embedding
+    from `email`.`_default`.`_default` e
+    WHERE e.timestamp = '2009-12-18 02:12:30.7799'
+)
+SELECT e.sender, e.receivers, e.content
+from `email`.`_default`.`_default` e
+ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail.embedding[0],"DOT")
+LIMIT 5;
+```
+
+The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semanticall similar. Not a very useful query, but it helps us to verify the index is working.
