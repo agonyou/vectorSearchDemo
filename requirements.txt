@@ -3,3 +3,4 @@ openai
 sentence-transformers
 couchbase
 tqdm
+python-dotenv

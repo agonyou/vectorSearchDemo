@@ -25,6 +25,30 @@ What this repo contains
  - `data.json`: sample or preprocessed data used by the demo (email rows and metadata).
  - (Future) code snippets demonstrating how to index embeddings in Couchbase and run composite vector queries.
 
+# Step 0: Prerequesites
+
+Make sure you've got Python running. You'll probably want to create a virtual environment first, like this:
+
+```bash
+python3 -m venv venv
+```
+
+Then go into that venv with this command:
+
+```bash
+source venv/bin/activate
+```
+
+Then install requirments:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+At this point, you may want to go ahead and create an `.env` file, using the settings you need for your environment. Check out `.env.sample` for an example.
+
+Now you're ready to start loading data.
+
 # Step 1: Loading the data
 
 The data must first be loaded into Couchbase. The script `load.py` will load a given number of emails into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
@@ -99,9 +123,26 @@ WITH anEmail AS (
     WHERE e.timestamp = '2009-12-18 02:12:30.7799'
 )
 SELECT e.sender, e.receivers, e.content
-from `email`.`_default`.`_default` e
+FROM `email`.`_default`.`_default` e
 ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail.embedding[0],"DOT")
 LIMIT 5;
 ```
 
 The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semanticall similar. Not a very useful query, but it helps us to verify the index is working.
+
+# Step 3: Perform a RAG operation
+
+The `rag.py` program is an interactive command line program that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. The program will gather the relevant information from the database, using a query similar to this form:
+
+```SQL
+/* TODO replace with correct syntax */
+SELECT RAW e.content
+FROM `email`.`_default`.`_default` e
+WHERE e.sender = 'whatever@sender.com'
+AND e.receivers CONTAINS('whoever@receiver.com')
+ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail.embedding[0],"DOT")
+LIMIT 5;
+```
+
+This content will then will sent, along with the prompt, to an LLM, and the result displayed on the command line. Try similar prompts with different senders/receivers to see how the result differents.
+

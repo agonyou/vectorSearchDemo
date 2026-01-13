@@ -1,40 +1,80 @@
 #!/usr/bin/env python3
-"""Simple loader to compute embeddings for email `Contents` and upsert into Couchbase.
+"""
+Simple loader to compute embeddings for email-like JSON rows
+and upsert them into Couchbase.
 
-Supports OpenAI (if `OPENAI_API_KEY` set) or local `sentence-transformers` as a fallback.
+Key behaviors:
+- Uses `timestamp` from each JSON row as the Couchbase document key
+- Skips documents that already exist
+- Supports loading only N *new* documents via --limit
+- Computes embeddings only for documents that will actually be written
 
 Usage:
   python load.py --data data.json
-
-Set connection/config in a `.env` file (see `.env` template).
+  python load.py --data data.json --limit 5
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 import os
-import uuid
 from typing import List
-
 from dotenv import load_dotenv
 
+# Load environment variables from .env early
 load_dotenv()
 
 LOG = logging.getLogger("loader")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
+def log_safe_doc(doc_id: str, doc: dict, *, contents_max=200, embedding_max=8) -> None:
+    """
+    Log a human-readable, truncated version of a document for debugging.
+
+    - contents: truncated to `contents_max` characters
+    - embedding: truncated to first `embedding_max` floats
+    """
+    safe = dict(doc)
+
+    if "contents" in safe and isinstance(safe["contents"], str):
+        if len(safe["contents"]) > contents_max:
+            safe["contents"] = safe["contents"][:contents_max] + "…"
+
+    if "embedding" in safe and isinstance(safe["embedding"], list):
+        safe["embedding"] = safe["embedding"][:embedding_max]
+        safe["embedding_truncated"] = True
+        safe["embedding_dim"] = len(doc["embedding"])
+
+    LOG.info(
+        "doc_id=%s\n%s",
+        doc_id,
+        json.dumps(safe, indent=2, ensure_ascii=False),
+    )
+
+
 def get_env(name: str, default: str | None = None) -> str | None:
-    v = os.getenv(name, default)
-    if v is None:
-        LOG.debug("env %s not set", name)
-    return v
+    """
+    Small helper so env access is consistent and centralized.
+    """
+    return os.getenv(name, default)
 
 
 def compute_embedding(text: str) -> List[float]:
-    """Compute an embedding using OpenAI (if configured) or sentence-transformers fallback."""
+    """
+    Compute a vector embedding for the given text.
+
+    Order of preference:
+    1. OpenAI embeddings (if OPENAI_API_KEY is set)
+    2. Local sentence-transformers fallback
+
+    This function intentionally hides provider details from the rest
+    of the loader so swapping models is trivial.
+    """
     openai_api_key = get_env("OPENAI_API_KEY")
+
     if openai_api_key:
         try:
             import openai
@@ -44,30 +84,33 @@ def compute_embedding(text: str) -> List[float]:
             resp = openai.Embedding.create(model=model, input=text)
             return resp["data"][0]["embedding"]
         except Exception as e:
+            # If OpenAI fails for any reason, fall back without killing the run
             LOG.warning("OpenAI embedding failed, falling back to local: %s", e)
 
-    # Fallback to sentence-transformers
-    try:
-        from sentence_transformers import SentenceTransformer
+    # Local fallback (requires sentence-transformers installed)
+    from sentence_transformers import SentenceTransformer
 
-        model_name = get_env("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
-        model = SentenceTransformer(model_name)
-        emb = model.encode(text)
-        return emb.tolist()
-    except Exception as e:
-        LOG.error("No embedding provider available: %s", e)
-        raise
+    model_name = get_env("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
+    model = SentenceTransformer(model_name)
+    return model.encode(text).tolist()
 
 
-def upsert_documents(docs: list[dict], dry_run: bool = False) -> None:
-    """Upsert documents into Couchbase with an `embedding` field."""
-    # Lazy import couchbase to avoid hard dependency at module import
-    try:
-        from couchbase.cluster import Cluster, ClusterOptions
-        from couchbase.auth import PasswordAuthenticator
-    except Exception as e:
-        LOG.error("Couchbase SDK not available: %s", e)
-        raise
+def get_collection():
+    """
+    Create and return a Couchbase collection.
+
+    Uses:
+    - COUCHBASE_CONNSTR
+    - COUCHBASE_USERNAME
+    - COUCHBASE_PASSWORD
+    - COUCHBASE_BUCKET
+    - Optional COUCHBASE_SCOPE / COUCHBASE_COLLECTION
+
+    Keeping this in one place avoids connection logic being
+    scattered across the script.
+    """
+    from couchbase.cluster import Cluster, ClusterOptions
+    from couchbase.auth import PasswordAuthenticator
 
     conn_str = get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1")
     username = get_env("COUCHBASE_USERNAME", "Administrator")
@@ -76,72 +119,117 @@ def upsert_documents(docs: list[dict], dry_run: bool = False) -> None:
     scope_name = get_env("COUCHBASE_SCOPE")
     coll_name = get_env("COUCHBASE_COLLECTION")
 
-    cluster = Cluster(conn_str, ClusterOptions(PasswordAuthenticator(username, password)))
+    cluster = Cluster(
+        conn_str,
+        ClusterOptions(PasswordAuthenticator(username, password)),
+    )
+
     bucket = cluster.bucket(bucket_name)
 
+    # Prefer named scope/collection when provided
     if scope_name and coll_name:
-        collection = bucket.scope(scope_name).collection(coll_name)
-    else:
-        collection = bucket.default_collection()
+        return bucket.scope(scope_name).collection(coll_name)
 
-    LOG.info("Upserting %d documents (dry_run=%s)", len(docs), dry_run)
-    for doc in docs:
-        doc_id = doc.get("id") or str(uuid.uuid4())
-        if dry_run:
-            LOG.info("DRY UPsert %s -> sender=%s contents_len=%d", doc_id, doc.get("sender"), len(doc.get("contents", "")))
-            continue
-        try:
-            collection.upsert(doc_id, doc)
-        except Exception as e:
-            LOG.error("Failed to upsert %s: %s", doc_id, e)
+    return bucket.default_collection()
 
 
 def normalize_row(row: dict) -> dict:
-    # Accept different key casings
-    sender = row.get("Sender") or row.get("sender") or row.get("From") or row.get("from")
-    receivers = row.get("Receivers") or row.get("receivers") or row.get("To") or row.get("to")
-    contents = row.get("Contents") or row.get("contents") or row.get("body") or row.get("text") or ""
-    return {"sender": sender, "receivers": receivers, "contents": contents}
+    """
+    Normalize incoming JSON rows so downstream code does not care
+    about field casing or alternate names.
+
+    This allows mixed or messy source data without spreading
+    conditionals everywhere.
+    """
+    return {
+        "sender": row.get("Sender") or row.get("sender") or row.get("From") or row.get("from"),
+        "receivers": row.get("Receivers") or row.get("receivers") or row.get("To") or row.get("to"),
+        "contents": row.get("Contents") or row.get("contents") or row.get("body") or row.get("text") or "",
+        # timestamp is required because it becomes the Couchbase document key
+        "timestamp": row.get("timestamp"),
+    }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data.json", help="Path to input JSON file (array of rows)")
-    parser.add_argument("--dry-run", action="store_true", help="Do not write to Couchbase; just show actions")
+    parser.add_argument("--data", default="data.json", help="Path to JSON array file")
+    parser.add_argument("--dry-run", action="store_true", help="Do not write to Couchbase")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Load only N new (previously unseen) documents",
+    )
     args = parser.parse_args()
 
-    path = args.data
-    if not os.path.exists(path):
-        LOG.error("Data file not found: %s", path)
+    if not os.path.exists(args.data):
+        LOG.error("Data file not found: %s", args.data)
         return
 
-    with open(path, "r", encoding="utf-8") as fh:
+    # Load the entire JSON file into memory
+    with open(args.data, "r", encoding="utf-8") as fh:
         raw = json.load(fh)
 
     if not isinstance(raw, list):
-        LOG.error("Expected JSON array of rows in %s", path)
+        LOG.error("Expected JSON array of rows")
         return
 
-    prepared = []
+    collection = get_collection()
+
+    loaded = 0
+    skipped = 0
+
+    # Iterate in file order; "first N" is deterministic
     for i, row in enumerate(raw):
         nr = normalize_row(row)
+
+        # timestamp is mandatory since it becomes the document ID
+        if nr["timestamp"] is None:
+            LOG.warning("Row %d missing timestamp, skipping", i)
+            continue
+
+        doc_id = str(nr["timestamp"])
+
+        # Skip documents that already exist to keep loads idempotent
+        if collection.exists(doc_id).exists:
+            skipped += 1
+            continue
+
         contents = nr["contents"] or ""
+
+        # Only compute embeddings for documents we will actually write
         try:
-            emb = compute_embedding(contents)
+            embedding = compute_embedding(contents)
         except Exception:
             LOG.exception("Embedding failed for row %d, skipping", i)
             continue
 
         doc = {
-            "id": row.get("id") or f"email::{i}",
             "sender": nr["sender"],
             "receivers": nr["receivers"],
             "contents": contents,
-            "embedding": emb,
+            "timestamp": nr["timestamp"],
+            "embedding": embedding,
         }
-        prepared.append(doc)
 
-    upsert_documents(prepared, dry_run=args.dry_run)
+        if args.dry_run:
+            # LOG.info("DRY upsert %s (contents_len=%d)", doc_id, len(contents))
+            LOG.info(log_safe_doc(doc_id, doc))
+        else:
+            collection.upsert(doc_id, doc)
+            LOG.info("Upserted %s", doc_id)
+
+        loaded += 1
+
+        # Stop once we've loaded N new documents
+        if args.limit and loaded >= args.limit:
+            break
+
+    LOG.info(
+        "Done. Loaded=%d, skipped(existing)=%d, limit=%s",
+        loaded,
+        skipped,
+        args.limit,
+    )
 
 
 if __name__ == "__main__":
