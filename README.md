@@ -73,10 +73,12 @@ data.json excerpt:
 You can load this file with this command:
 
 ```bash
-python load.py --data data.json
+python load.py --data data.json --limit 5
 ```
 
-When stored in Couchbase as a document with an embedding, the document would look like this:
+The `--limit N` parameter means that you want to load the next N documents that haven't been loaded yet.
+
+When stored in Couchbase as a document with an embedding, the document will look like this:
 
 ```javascript
 [
