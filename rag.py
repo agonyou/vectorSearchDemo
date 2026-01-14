@@ -18,7 +18,7 @@ import logging
 import os
 import sys
 from typing import List
-
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load env vars early
@@ -44,81 +44,98 @@ def get_env(name: str, default: str | None = None, required: bool = False) -> st
 # Embedding helpers (OpenAI OR local)
 # ------------------------------------------------------------
 
-_ST_MODEL = None
+_openai_client = None
+_st_model = None
 
 def compute_embedding(text: str) -> List[float]:
     """
-    Compute an embedding for vector search.
+    Compute a vector embedding for the given text.
 
-    Preference order:
-    1. OpenAI embeddings (if OPENAI_API_KEY is set)
-    2. Local sentence-transformers
+    Order:
+    1. SentenceTransformer (only if SENTENCE_TRANSFORMER_MODEL is set)
+    2. OpenAI embeddings fallback
+
+    Caches models so repeated calls are fast.
     """
-    openai_key = get_env("OPENAI_API_KEY")
+    global _st_model, _openai_client
 
-    if openai_key:
+    st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
+
+    if st_model_name:
         try:
-            import openai
+            if _st_model is None:
+                LOG.info("Loading SentenceTransformer: %s", st_model_name)
+                from sentence_transformers import SentenceTransformer
 
-            openai.api_key = openai_key
-            model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+                _st_model = SentenceTransformer(st_model_name)
 
-            resp = openai.Embedding.create(
-                model=model,
-                input=text,
-            )
-            return resp["data"][0]["embedding"]
+            return _st_model.encode(text).tolist()
+
         except Exception as e:
-            LOG.warning("OpenAI embedding failed, falling back to local: %s", e)
+            LOG.warning(
+                "SentenceTransformer failed, falling back to OpenAI: %s", e
+            )
 
-    # ---- Local fallback ----
-    global _ST_MODEL
-    if _ST_MODEL is None:
-        from sentence_transformers import SentenceTransformer
+    openai_api_key = get_env("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise RuntimeError(
+            "No embedding provider available: "
+            "set SENTENCE_TRANSFORMER_MODEL or OPENAI_API_KEY"
+        )
 
-        model_name = get_env("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
-        LOG.info("Loading local sentence transformer: %s (CPU)", model_name)
-        _ST_MODEL = SentenceTransformer(model_name, device="cpu")
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=openai_api_key)
 
-    return _ST_MODEL.encode(text).tolist()
+    model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+
+    resp = _openai_client.embeddings.create(
+        model=model,
+        input=text,
+    )
+    return resp.data[0].embedding
 
 
 # ------------------------------------------------------------
 # OpenAI LLM (required)
 # ------------------------------------------------------------
 
-def generate_with_llm(prompt: str, context_chunks: List[str]) -> str:
+def generate_with_llm(prompt: str, context: str) -> str:
     """
-    Generate text using OpenAI Chat Completions.
-    This ALWAYS requires OpenAI.
+    Generate a response using retrieved context.
+    Uses OpenAI Chat Completions (openai >= 1.0).
     """
-    import openai
+    openai_api_key = get_env("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY is required for generation")
 
-    openai.api_key = get_env("OPENAI_API_KEY", required=True)
+    client = OpenAI(api_key=openai_api_key)
 
-    system_msg = (
-        "You are an assistant helping write text based on prior emails. "
-        "Use the provided email excerpts as context. "
-        "Do not invent details not supported by the context."
+    model = get_env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+
+    system_prompt = (
+        "You are an assistant answering questions using only the provided context. "
+        "If the context does not contain enough information, say so clearly."
     )
 
-    context_text = "\n\n---\n\n".join(context_chunks)
-
     messages = [
-        {"role": "system", "content": system_msg},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
-            "content": f"Context emails:\n{context_text}\n\nPrompt:\n{prompt}",
+            "content": f"""Context:
+{context}
+
+Prompt:
+{prompt}""",
         },
     ]
 
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
+    resp = client.chat.completions.create(
+        model=model,
         messages=messages,
-        temperature=0.7,
+        temperature=0.3,
     )
 
-    return resp["choices"][0]["message"]["content"]
+    return resp.choices[0].message.content.strip()
 
 
 # ------------------------------------------------------------
@@ -126,28 +143,31 @@ def generate_with_llm(prompt: str, context_chunks: List[str]) -> str:
 # ------------------------------------------------------------
 
 def get_collection():
-    from couchbase.cluster import Cluster
-    from couchbase.options import ClusterOptions
+    from couchbase.cluster import Cluster, ClusterOptions
     from couchbase.auth import PasswordAuthenticator
 
-    conn_str = get_env("COUCHBASE_CONNSTR", required=True)
-    username = get_env("COUCHBASE_USERNAME", required=True)
-    password = get_env("COUCHBASE_PASSWORD", required=True)
-    bucket_name = get_env("COUCHBASE_BUCKET", required=True)
-    scope_name = get_env("COUCHBASE_SCOPE")
-    coll_name = get_env("COUCHBASE_COLLECTION")
+    conn_str = get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1")
+    username = get_env("COUCHBASE_USERNAME", "Administrator")
+    password = get_env("COUCHBASE_PASSWORD", "password")
+
+    bucket = get_env("COUCHBASE_BUCKET", "default")
+    scope = get_env("COUCHBASE_SCOPE", "_default")
+    collection = get_env("COUCHBASE_COLLECTION", "_default")
 
     cluster = Cluster(
         conn_str,
         ClusterOptions(PasswordAuthenticator(username, password)),
     )
 
-    bucket = cluster.bucket(bucket_name)
+    coll = cluster.bucket(bucket).scope(scope).collection(collection)
 
-    if scope_name and coll_name:
-        return bucket.scope(scope_name).collection(coll_name)
-
-    return bucket.default_collection()
+    return {
+        "cluster": cluster,
+        "bucket": bucket,
+        "scope": scope,
+        "collection": collection,
+        "collection_obj": coll,
+    }
 
 
 # ------------------------------------------------------------
@@ -155,7 +175,10 @@ def get_collection():
 # ------------------------------------------------------------
 
 def run_composite_query(
-    collection,
+    cluster,
+    bucket: str,
+    scope: str,
+    collection: str,
     query_embedding: List[float],
     sender: str | None,
     receiver: str | None,
@@ -172,12 +195,12 @@ def run_composite_query(
         "limit": limit,
     }
 
+    # sender is a scalar object, not an array
     if sender:
-        where_clauses.append(
-            "ANY s IN e.sender SATISFIES s == $sender END"
-        )
-        params["sender"] = f"%{sender}%"
+        where_clauses.append(" ANY s IN e.sender SATISFIES s == $sender END ")
+        params["sender"] = sender
 
+    # receivers is an object with arrays (to/cc/bcc)
     if receiver:
         where_clauses.append(
             """
@@ -188,7 +211,7 @@ def run_composite_query(
             )
             """
         )
-        params["receiver"] = f"%{receiver}%"
+        params["receiver"] = receiver
 
     where_sql = ""
     if where_clauses:
@@ -196,14 +219,13 @@ def run_composite_query(
 
     statement = f"""
     SELECT RAW e.contents
-    FROM `{collection.bucket_name}` e
+    FROM `{bucket}`.`{scope}`.`{collection}` e
     {where_sql}
-    ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, $vector, "DOT")
+    ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, $vector, "COSINE")
     LIMIT $limit
     """
 
-    LOG.info("Executing composite vector query")
-    rows = collection.query(statement, params)
+    rows = cluster.query(statement,**params)
 
     return [row for row in rows]
 
@@ -212,29 +234,29 @@ def run_composite_query(
 # Interactive CLI
 # ------------------------------------------------------------
 
-def main() -> None:
+def main():
     print("\n=== Couchbase Composite Vector RAG Demo ===\n")
 
-    # LLM requires OpenAI — fail fast if missing
-    get_env("OPENAI_API_KEY", required=True)
+    sender = input('Filter by sender (exact match): ').strip() or None
+    receiver = input("Filter by receiver field (exact match): ").strip() or None
 
-    collection = get_collection()
-
-    sender = input("Filter by sender (optional, substring match): ").strip() or None
-    receiver = input("Filter by receiver (optional, substring match): ").strip() or None
     prompt = input("\nEnter your prompt:\n> ").strip()
-
     if not prompt:
-        print("Prompt is required.")
+        print("Prompt required")
         return
 
     LOG.info("Computing embedding for prompt")
-    query_embedding = compute_embedding(prompt)
+    embedding = compute_embedding(prompt)
+
+    cb = get_collection()
 
     LOG.info("Running composite vector search")
     context_chunks = run_composite_query(
-        collection=collection,
-        query_embedding=query_embedding,
+        cluster=cb["cluster"],
+        bucket=cb["bucket"],
+        scope=cb["scope"],
+        collection=cb["collection"],
+        query_embedding=embedding,
         sender=sender,
         receiver=receiver,
         limit=5,
@@ -244,12 +266,12 @@ def main() -> None:
         print("\nNo matching context found.")
         return
 
-    LOG.info("Generating response with LLM")
-    result = generate_with_llm(prompt, context_chunks)
+    context = "\n\n---\n\n".join(context_chunks)
 
-    print("\n=== Generated Result ===\n")
-    print(result)
-    print("\n========================\n")
+    response = generate_with_llm(prompt, context)
+
+    print("\n=== Answer ===\n")
+    print(response)
 
 
 if __name__ == "__main__":
