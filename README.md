@@ -136,17 +136,37 @@ The `WITH` clause here spares us from having to copy/paste a long vector into a 
 
 # Step 3: Perform a RAG operation
 
-The `rag.py` program is an interactive command line program that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. The program will gather the relevant information from the database, using a query similar to this form:
+The `rag.py` program is an interactive command line program that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. This will be vectorized with the same model as in load.py. The program will gather the relevant information from the database, using a query similar to this form:
 
 ```SQL
 /* TODO replace with correct syntax */
-SELECT RAW e.content
+SELECT RAW e.contents
 FROM `email`.`_default`.`_default` e
-WHERE e.sender = 'whatever@sender.com'
-AND e.receivers CONTAINS('whoever@receiver.com')
-ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail.embedding[0],"DOT")
-LIMIT 5;
+WHERE  ANY s IN e.sender SATISFIES s == $sender END
+AND (ANY r IN e.receivers.to SATISFIES r == $receiver END
+OR ANY r IN e.receivers.cc SATISFIES r == $receiver END
+OR ANY r IN e.receivers.bcc SATISFIES r == $receiver END)
+ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, <vector of prompt goes here>, "COSINE")
+LIMIT 5
+
 ```
 
-This content will then will sent, along with the prompt, to an LLM, and the result displayed on the command line. Try similar prompts with different senders/receivers to see how the result differents.
+This content will then will sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
 
+An example execution:
+
+```bash
+== Couchbase Composite Vector RAG Demo ===
+
+Filter by sender (exact match): "Wayne D. Kimmel" <wayne@etfventurefunds.com>
+Filter by receiver field (exact match): 
+
+Enter your prompt:
+> What organizations does Wayne most discuss?
+
+=== Answer ===
+
+Wayne most discusses ETF Venture Funds and the National Venture Capital Association (NVCA). He also mentions Fisker, indicating an interest in investing in the company.
+```
+
+Try similar prompts with different senders/receivers to see how the result differs.
