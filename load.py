@@ -61,38 +61,48 @@ def get_env(name: str, default: str | None = None) -> str | None:
     """
     return os.getenv(name, default)
 
-
 def compute_embedding(text: str) -> List[float]:
     """
     Compute a vector embedding for the given text.
 
     Order of preference:
-    1. OpenAI embeddings (if OPENAI_API_KEY is set)
-    2. Local sentence-transformers fallback
+    1. Local sentence-transformers (if SENTENCE_TRANSFORMER_MODEL is set)
+    2. OpenAI embeddings fallback (if OPENAI_API_KEY is set)
 
-    This function intentionally hides provider details from the rest
-    of the loader so swapping models is trivial.
+    Provider details are intentionally hidden so swapping models is trivial.
     """
-    openai_api_key = get_env("OPENAI_API_KEY")
 
-    if openai_api_key:
+    st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
+
+    if st_model_name:
         try:
-            import openai
+            from sentence_transformers import SentenceTransformer
 
-            openai.api_key = openai_api_key
-            model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-            resp = openai.Embedding.create(model=model, input=text)
-            return resp["data"][0]["embedding"]
+            model = SentenceTransformer(st_model_name)
+            return model.encode(text).tolist()
         except Exception as e:
-            # If OpenAI fails for any reason, fall back without killing the run
-            LOG.warning("OpenAI embedding failed, falling back to local: %s", e)
+            LOG.warning(
+                "SentenceTransformer embedding failed, falling back to OpenAI: %s",
+                e,
+            )
 
-    # Local fallback (requires sentence-transformers installed)
-    from sentence_transformers import SentenceTransformer
+    openai_api_key = get_env("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise RuntimeError(
+            "No embedding provider available: "
+            "set SENTENCE_TRANSFORMER_MODEL or OPENAI_API_KEY"
+        )
 
-    model_name = get_env("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
-    model = SentenceTransformer(model_name)
-    return model.encode(text).tolist()
+    import openai
+
+    openai.api_key = openai_api_key
+    model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+
+    resp = openai.Embedding.create(
+        model=model,
+        input=text,
+    )
+    return resp["data"][0]["embedding"]
 
 
 def get_collection():
