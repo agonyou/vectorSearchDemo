@@ -139,7 +139,6 @@ The `WITH` clause here spares us from having to copy/paste a long vector into a 
 The `rag.py` program is an interactive command line program that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. This will be vectorized with the same model as in load.py. The program will gather the relevant information from the database, using a query similar to this form:
 
 ```SQL
-/* TODO replace with correct syntax */
 SELECT RAW e.contents
 FROM `email`.`_default`.`_default` e
 WHERE  ANY s IN e.sender SATISFIES s == $sender END
@@ -148,7 +147,6 @@ OR ANY r IN e.receivers.cc SATISFIES r == $receiver END
 OR ANY r IN e.receivers.bcc SATISFIES r == $receiver END)
 ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, <vector of prompt goes here>, "COSINE")
 LIMIT 5
-
 ```
 
 This content will then will sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
