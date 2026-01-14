@@ -107,12 +107,16 @@ When embedding with AI Services, that "embedding" field would be automatically c
 Once the data is loaded, create a [Composite Vector Index](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
 
 ```SQL
-CREATE INDEX `idx_comp_vector_email` ON `email`.`_default`.`_default`
-       (`embedding` VECTOR, sender, receivers)
-       WITH {  "dimension":1536 , "similarity":"DOT", "description":"IVF,SQ8"};
+CREATE INDEX `idx_comp_vector_email`
+ON `email`(`embedding` VECTOR,`sender`,`receivers`)
+WITH {  "dimension":384, "similarity":"DOT", "description":"IVF,SQ8" }
 ```
 
-`DOT` similarity is used because it's good for comparing text content. Make sure the number of dimensions matches your .env setting.
+Important notes:
+
+* `DOT` similarity is used because it's good for comparing text content.
+* Make sure the number of dimensions matches your .env setting.
+* In this case, `sender` and `receivers` are an object and array respectively. This may not be optimal for production index/query.
 
 Test the index with a query like:
 
