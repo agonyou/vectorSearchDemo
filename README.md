@@ -112,7 +112,7 @@ CREATE INDEX `idx_comp_vector_email` ON `email`.`_default`.`_default`
        WITH {  "dimension":1536 , "similarity":"DOT", "description":"IVF,SQ8"};
 ```
 
-`DOT` similarity is used because it's good for comparing text content.
+`DOT` similarity is used because it's good for comparing text content. Make sure the number of dimensions matches your .env setting.
 
 Test the index with a query like:
 

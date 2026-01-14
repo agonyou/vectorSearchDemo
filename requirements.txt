@@ -1,6 +1,6 @@
 python-dotenv
 openai
-sentence-transformers
 couchbase
+sentence-transformers
+torch
 tqdm
-python-dotenv
