@@ -1,29 +1,40 @@
-# Email Demo — Couchbase Composite Vector Query
+# Email Demo — Couchbase Vector Query Options in action
 
-This demo illustrates how vector search and Couchbase's Composite Vector Query can be combined to improve relevance and performance for RAG-style workflows by applying standard (non-vector) filters alongside k-NN vector searches.
+This demo illustrates the strengths of each vector search option in Couchase.
 
-Dataset
- - The demo uses the Kaggle dataset: https://www.kaggle.com/datasets/anuranroy/hunter-biden-mails
- - The dataset contains fields such as `Sender`, `Receivers`, and `Contents`. `Contents` holds the email text used to compute embedding vectors.
+Datasets
 
-Why composite vector queries?
- - A plain vector search (k-NN over all vectors) finds semantically similar documents but cannot efficiently restrict the search by structured attributes (for example, author or recipient).
- - A composite vector query lets you apply standard filters (e.g., `sender == X`) and then run a k-NN search only within that filtered subset, reducing noise and improving both accuracy and performance.
+- TODO
 
-Example use case
- - Task: "Write an email in the style of person X." Without composite filtering, a k-NN search would consider all emails (including those not written by X). With a composite vector query, you can constrain results to `sender == X`, so the semantic search only examines emails authored by X.
-    - Beyond emails, other use cases where Composite Vector Search might apply:
-    - *Legal eDiscovery*: Restrict by case_id, jurisdiction, or date_range then run vector search to find semantically relevant clauses or communications.
-    - *Customer Support Triage*: Filter by product, customer_id, or priority and retrieve semantically similar past tickets/solutions.
-    - *Medical Records Retrieval*: Limit by patient_id, visit_date, or specialty and perform semantic retrieval over clinical notes.
-- A task that is better suited by needing to examine an entire body of text might be better served by a Couchbase Hyperscale Vector index. For instance:
-    - A collection of car owner's manuals: What are the most commons causes of muffler failure in vehicles?
-    - Coding copilot: examine all code repositories with a similar purpose to help generate a function
-    - Research/writing: examine all books for a related topic to generate a paragraph
+# Three Types of Vector Search indexes
 
-What this repo contains
- - `data.json`: sample or preprocessed data used by the demo (email rows and metadata).
- - (Future) code snippets demonstrating how to index embeddings in Couchbase and run composite vector queries.
+## Hyperscale
+
+This type of index is best for large data sets where you don't plan to do any filtering of data.
+
+Example use cases:
+
+- *Knowledge base*: A collection of *car owner's manuals: What are the most commons causes of muffler failure in vehicles?
+- *Coding copilot*: examine all code repositories with a similar purpose to help generate a function
+- *Research/writing*: examine all books for a related topic to generate a paragraph
+
+## Composite
+
+A hyperscale vector search (k-NN over all vectors) finds semantically similar documents but cannot efficiently restrict the search by structured attributes (for example, author or recipient of an email). A composite vector query lets you apply standard filters (e.g., `sender == X`) and then run a k-NN search only within that filtered subset, reducing noise and improving both accuracy and performance.
+
+Example use cases
+- *Email content* What organizations do emails from jim.smith@gmail.com mention the most?
+- *Legal eDiscovery*: Restrict by case_id then run vector search to find semantically relevant clauses or communications.
+- *Customer Support Triage*: Filter by product and retrieve semantically similar past tickets/solutions.
+- *Medical Records Retrieval*: Limit by patient_id and perform semantic retrieval over clinical notes.
+
+## Hybrid (FTS)
+
+A hybrid vector search can use semantic vector search together with FTS features (for example, geospatial or traditional text).
+
+Example use cases:
+- *Restaurants* What restaurants within 5 miles of a certain location have great parking and serve chicken fingers?
+- TODO more
 
 # Step 0: Prerequesites
 
@@ -51,47 +62,26 @@ Now you're ready to start loading data.
 
 # Step 1: Loading the data
 
-The data must first be loaded into Couchbase. The script `load.py` will load a given number of emails into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
+The data must first be loaded into Couchbase. The `loadXYZ.py` scripts will load data into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
 
-data.json excerpt:
-```javascript
-[
-    {
-        "sender": ["\"Bob Smith\" <bobsmith@gmail.com>"],
-        "receivers": {
-            "to": ["\"Mike Muldoon\" <mmuldoon@gmail.com>"],
-            "cc": ["\"Steve Hunter\" <hunter@gmail.com>"],
-            "bcc": ["\"Ron Kochendorfer\" <kokain9@gmail.com>"]
-        },
-        "timestamp": "2009-12-18 01:48:29.77933",
-        "contents": "body of email"
-    },
-    // ... etc ...
-]
-```
-
-You can load this file with this command:
+You can load with a command like this:
 
 ```bash
-python load.py --data data.json --limit 5
+python loadXYZ.py --data data.json --limit 5
 ```
 
 The `--limit N` parameter means that you want to load the next N documents that haven't been loaded yet.
 
-When stored in Couchbase as a document with an embedding, the document will look like this:
+When stored in Couchbase as a document with an embedding, documents will look like this:
 
 ```javascript
 [
-    key: 
+    key: "doc1"
     {
-        "sender": ["\"Bob Smith\" <bobsmith@gmail.com>"],
-        "receivers": {
-            "to": ["\"Mike Muldoon\" <mmuldoon@gmail.com>"],
-            "cc": ["\"Steve Hunter\" <hunter@gmail.com>"],
-            "bcc": ["\"Ron Kochendorfer\" <kokain9@gmail.com>"]
-        },
-        "timestamp": "2009-12-18 01:48:29.77933",
-        "contents": "body of email",
+        "emailFrom": ["bobsmith@gmail.com"],
+        "caseId": "123456",
+        ... etc ...
+        "textToUseInVector": "...text goes here...",
         "embedding": [0.0123, -0.8471, ... etc ...]
     },
     // ... etc ...
@@ -100,13 +90,21 @@ When stored in Couchbase as a document with an embedding, the document will look
 
 Alternatively, the embeddings can be automatically generated on the fly with Capella AI Services with a [Process and Vectorize Unstructed Data workflow](https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html). This approach will greatly simplify your AI application development, and separates the data processing from your application code.
 
-When embedding with AI Services, that "embedding" field would be automatically created/updated whenever the document itself is created/updated. Furthermore, AI Services can use either an external Open AI type of model, or a private model hosted in Capella itself. (A private model could also be used in `load.py`).
+When embedding with AI Services, that "embedding" field would be automatically created/updated whenever the document itself is created/updated. Furthermore, AI Services can use either an external Open AI type of model, or a private model hosted in Capella itself. (A private model could also be used in `loadXYZ.py`).
 
-`load.py` loads data into an "email" bucket, in the _default scope and _default collection.
+The three load scripts are:
 
-# Step 2: Create the index
+* `loadComposite.py` loads data into an "email" bucket, in the _default scope and _default collection, intended for use with a composite vector index. This uses the [Customer Care Emails dataset](https://www.kaggle.com/datasets/rtweera/customer-care-emails): dataset.csv
+* `loadHyper.py` loads data into an XXX bucket, in the _default scope and _default collection, indended for use with a hyperscale vector index. This uses the [Wikipedia Movie Plots dataset](https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots): wiki_movie_plots_deduped.csv
+* `loadFts.py` loads data into an YYY bucket, in the _default scope and _default collection, indended for use with an FTS vector index. This uses the [Yelp Dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset): yelp_academic_dataset_business.json
 
-Once the data is loaded, create a [Composite Vector Index](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
+Put any/all of these files into the `data` subfolder, so that the `loadXYZ.py` scripts can find them.
+
+# Step 2: Create the indexes
+
+Once the data is loaded, create indexes.
+
+## [Composite Vector Index](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
 
 ```SQL
 CREATE INDEX `idx_comp_vector_email`
@@ -136,9 +134,19 @@ LIMIT 5;
 
 The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semanticall similar. Not a very useful query, but it helps us to verify the index is working.
 
+## [Hyperscale Vector Index]()
+
+TODO
+
+## [Hybrid (FTS) Vector Index]()
+
+TODO
+
 # Step 3: Perform a RAG operation
 
-The `rag.py` program is an interactive command line program that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. This will be vectorized with the same model as in load.py. The program will gather the relevant information from the database, using a query similar to this form:
+The `ragXYZ.py` programs are interactive command line programs that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. This will be vectorized with the same model as in the loadXYZ.py scripts. The program will gather the relevant information from the database, using a query corresponding to the index.
+
+## Composite
 
 ```SQL
 SELECT RAW e.contents
@@ -151,9 +159,19 @@ ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, <vector of prompt goes here>, "COSI
 LIMIT 5
 ```
 
-This content will then will sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
+## Hyperscale
 
-An example execution:
+TODO
+
+## Hybrid (FTS)
+
+TODO
+
+This content will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
+
+Example executions:
+
+## Composite
 
 ```bash
 == Couchbase Composite Vector RAG Demo ===
@@ -169,4 +187,16 @@ Enter your prompt:
 Wayne most discusses ETF Venture Funds and the National Venture Capital Association (NVCA). He also mentions Fisker, indicating an interest in investing in the company.
 ```
 
-Try similar prompts with different senders/receivers to see how the result differs.
+## Hyperscale
+
+TODO
+
+## Hybrid (FTS)
+
+TODO
+
+# What's next?
+
+* Composite: Try similar prompts with different senders/receivers to see how the result differs.
+* Hybrid (FTS): Try a radius search from a few blocks away (with the same prompt) and see how the result differs.
+* Hyperscale: TODO (maybe adjust tuneables like nprobes to see how the result differs?)

@@ -29,6 +29,11 @@ load_dotenv()
 LOG = logging.getLogger("loader")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+def truncate_text(text: str, max_chars: int = 8000) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
 
 def log_safe_doc(doc_id: str, doc: dict, *, contents_max=200, embedding_max=8) -> None:
     """
@@ -68,9 +73,9 @@ def compute_embedding(text: str) -> List[float]:
     Order of preference:
     1. Local sentence-transformers (if SENTENCE_TRANSFORMER_MODEL is set)
     2. OpenAI embeddings fallback (if OPENAI_API_KEY is set)
-
-    Provider details are intentionally hidden so swapping models is trivial.
     """
+
+    from openai import OpenAI
 
     st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
 
@@ -93,16 +98,18 @@ def compute_embedding(text: str) -> List[float]:
             "set SENTENCE_TRANSFORMER_MODEL or OPENAI_API_KEY"
         )
 
-    import openai
+    from openai import OpenAI
 
-    openai.api_key = openai_api_key
+    client = OpenAI(api_key=openai_api_key)
+
     model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
-    resp = openai.Embedding.create(
+    resp = client.embeddings.create(
         model=model,
         input=text,
     )
-    return resp["data"][0]["embedding"]
+
+    return resp.data[0].embedding
 
 
 def get_collection():
@@ -204,7 +211,7 @@ def main() -> None:
             skipped += 1
             continue
 
-        contents = nr["contents"] or ""
+        contents = truncate_text(nr["contents"] or "")
 
         # Only compute embeddings for documents we will actually write
         try:
