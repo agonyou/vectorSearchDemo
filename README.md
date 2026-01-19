@@ -33,7 +33,7 @@ Example use cases
 A hybrid vector search can use semantic vector search together with FTS features (for example, geospatial or traditional text).
 
 Example use cases:
-- *Restaurants* What restaurants within 5 miles of a certain location have great parking and serve chicken fingers?
+- *Business search* What businesses within 5 miles of a certain location might help me with weight loss?
 - TODO more
 
 # Step 0: Prerequesites
@@ -62,12 +62,12 @@ Now you're ready to start loading data.
 
 # Step 1: Loading the data
 
-The data must first be loaded into Couchbase. The `loadXYZ.py` scripts will load data into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
+The data must first be loaded into Couchbase. The `load.py` script will load data into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
 
 You can load with a command like this:
 
 ```bash
-python loadXYZ.py --data data.json --limit 5
+python load.py --data data.json --id-field id --text-fields contents --bucket mybucket --scope myschema --collection mydocs --limit 5
 ```
 
 The `--limit N` parameter means that you want to load the next N documents that haven't been loaded yet.
@@ -90,19 +90,29 @@ When stored in Couchbase as a document with an embedding, documents will look li
 
 Alternatively, the embeddings can be automatically generated on the fly with Capella AI Services with a [Process and Vectorize Unstructed Data workflow](https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html). This approach will greatly simplify your AI application development, and separates the data processing from your application code.
 
-When embedding with AI Services, that "embedding" field would be automatically created/updated whenever the document itself is created/updated. Furthermore, AI Services can use either an external Open AI type of model, or a private model hosted in Capella itself. (A private model could also be used in `loadXYZ.py`).
+When embedding with AI Services, that "embedding" field would be automatically created/updated whenever the document itself is created/updated. Furthermore, AI Services can use either an external Open AI type of model, or a private model hosted in Capella itself. (A private model could also be used in `load.py`).
 
-The three load scripts are:
+Here are three examples of loading data for the three use cases:
 
-* `loadComposite.py` loads data into an "email" bucket, in the _default scope and _default collection, intended for use with a composite vector index. This uses the [Customer Care Emails dataset](https://www.kaggle.com/datasets/rtweera/customer-care-emails): dataset.csv
-* `loadHyper.py` loads data into an XXX bucket, in the _default scope and _default collection, indended for use with a hyperscale vector index. This uses the [Wikipedia Movie Plots dataset](https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots): wiki_movie_plots_deduped.csv
-* `loadFts.py` loads data into an YYY bucket, in the _default scope and _default collection, indended for use with an FTS vector index. This uses the [Yelp Dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset): yelp_academic_dataset_business.json
+**Composite** - load emails from the [Customer Care Emails dataset](https://www.kaggle.com/datasets/rtweera/customer-care-emails): dataset.csv
 
-Put any/all of these files into the `data` subfolder, so that the `loadXYZ.py` scripts can find them.
+```bash
+python load.py --data data/dataset.csv --text-fields subject message_body --bucket vectorSearchDemo --scope _default --collection emails --copy-fields subject sender receiver message_body --limit 5 --id-field sender timestamp
+```
+
+This will vectorize the subject+message body together, and save the sender and receiver for filtering. It also combines sender/timestamp combination as a unique ID for each document.
+
+**Hyperscale** - load movie plots from the [Wikipedia Movie Plots dataset](https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots): wiki_movie_plots_deduped.csv
+
+TODO
+
+**Hybrid** - load businesses from the [Yelp Dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset): yelp_academic_dataset_business.json
+
+TODO
 
 # Step 2: Create the indexes
 
-Once the data is loaded, create indexes.
+Once the data is loaded, create index(es).
 
 ## [Composite Vector Index](https://docs.couchbase.com/cloud/vector-index/composite-vector-index.html).
 
@@ -144,7 +154,7 @@ TODO
 
 # Step 3: Perform a RAG operation
 
-The `ragXYZ.py` programs are interactive command line programs that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. This will be vectorized with the same model as in the loadXYZ.py scripts. The program will gather the relevant information from the database, using a query corresponding to the index.
+The `ragXYZ.py` programs are interactive command line programs that allows you to specify a sender and/or receiver(s) email addresses, and enter a prompt. This will be vectorized with the same model as in the load.py scripts. The program will gather the relevant information from the database, using a query corresponding to the index.
 
 ## Composite
 
