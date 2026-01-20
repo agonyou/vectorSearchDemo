@@ -43,17 +43,64 @@ button {
     color: white;
     border: none;
 }
+
+.tabs input[type="radio"] {
+  display: none;
+}
+
+.tabs label {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  background: #ddd;
+}
+
+.tabs input:checked + label {
+  background: #fff;
+  border-bottom: 2px solid #000;
+}
+
+.content section {
+  display: none;
+  padding: 1rem;
+  border: 1px solid #ccc;
+}
+
+#tab1:checked ~ .content #content1,
+#tab2:checked ~ .content #content2,
+#tab3:checked ~ .content #content3 {
+  display: block;
+}
+
 </style>
 </head>
 
 <body>
 <div class="container">
-    <h1>Command Runner</h1>
+    <h1>Couchbase Vector Search Demo</h1>
 
-    <div class="presets">
-        <button onclick="setCmd('python load.py --foo --bar --baz')">Load</button>
-        <button onclick="setCmd('python rag.py')">RAG</button>
-        <button onclick="setCmd('python test.py')">Test</button>
+    <div class="tabs">
+    <input type="radio" name="tabs" id="tab1" checked>
+    <label for="tab1">Composite</label>
+
+    <input type="radio" name="tabs" id="tab2">
+    <label for="tab2">Hyperscale</label>
+
+    <input type="radio" name="tabs" id="tab3">
+    <label for="tab3">Hybrid (FTS)</label>
+
+    <div class="content">
+        <section id="content1">
+            <button onclick="setCmd('python load.py --foo --bar --baz')">Load</button>
+        </section>
+
+        <section id="content2">
+             <button onclick="setCmd('python rag.py')">RAG</button>
+        </section>
+
+        <section id="content3">
+            <button onclick="setCmd('python test.py')">Test</button>
+        </section>
+    </div>
     </div>
 
     <input id="cmd" type="text" placeholder="Enter command..." />
