@@ -100,15 +100,23 @@ Here are three examples of loading data for the three use cases:
 python load.py --data data/dataset.csv --text-fields subject message_body --bucket vectorSearchDemo --scope _default --collection emails --copy-fields subject sender receiver message_body --limit 5 --id-field sender timestamp
 ```
 
+> NOTE: Two fields being vectorized, combined into one "content" field. I also have both of them in `--copy-fields` so they can stay separate. Your needs will vary by use case.
+
 This will vectorize the subject+message body together, and save the sender and receiver for filtering. It also combines sender/timestamp combination as a unique ID for each document.
 
 **Hyperscale** - load movie plots from the [Wikipedia Movie Plots dataset](https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots): wiki_movie_plots_deduped.csv
 
-TODO
+```bash
+python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title ReleaseYear Director --limit 5 --id-field Title ReleaseYear
+```
+
+> NOTE: For simplicity, I removed the spaces from CSV header row (i.e. Release Year became ReleaseYear). Since this is a single field being vectorized, I did not include it in `--copy-fields`. Again, your need will vary by use case.
 
 **Hybrid** - load businesses from the [Yelp Dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset): yelp_academic_dataset_business.json
 
-TODO
+```bash
+python load.py --datadata/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id
+```
 
 # Step 2: Create the indexes
 

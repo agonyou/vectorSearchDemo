@@ -119,19 +119,44 @@ def get_collection(bucket: str, scope: str, collection: str):
 # ---------------------------------------------------------------------------
 
 def load_rows(path: str) -> Iterable[Dict]:
-    """Load rows from CSV or JSON array."""
+    """
+    Load rows from:
+    - JSON array
+    - newline-delimited JSON (JSONL / NDJSON)
+    - CSV
+    """
     if path.lower().endswith(".json"):
         with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if not isinstance(data, list):
-            raise ValueError("JSON must contain an array of objects")
-        return data
+            first_char = fh.read(1)
+            fh.seek(0)
+
+            # JSON array
+            if first_char == "[":
+                data = json.load(fh)
+                if not isinstance(data, list):
+                    raise ValueError("JSON array expected")
+                return data
+
+            # JSON Lines / NDJSON
+            return [
+                json.loads(line)
+                for line in fh
+                if line.strip()
+            ]
+
+    if path.lower().endswith(".jsonl"):
+        with open(path, encoding="utf-8") as fh:
+            return [
+                json.loads(line)
+                for line in fh
+                if line.strip()
+            ]
 
     if path.lower().endswith(".csv"):
         with open(path, newline="", encoding="utf-8") as fh:
             return list(csv.DictReader(fh))
 
-    raise ValueError("Unsupported file type (use .csv or .json)")
+    raise ValueError("Unsupported file type (use .csv, .json, or .jsonl)")
 
 
 # ---------------------------------------------------------------------------
