@@ -97,9 +97,14 @@ def compute_embedding(text: str) -> List[float]:
 # ---------------------------------------------------------------------------
 
 def get_collection(bucket: str, scope: str, collection: str):
-    """Bucket, scope, and collection are REQUIRED and must come from CLI."""
-    from couchbase.cluster import Cluster, ClusterOptions
+    """
+    Resolve and validate bucket / scope / collection using the management API.
+    Terminates with a clear error message if anything does not exist.
+    """
+    from couchbase.cluster import Cluster
+    from couchbase.options import ClusterOptions
     from couchbase.auth import PasswordAuthenticator
+    from couchbase.exceptions import CouchbaseException
 
     cluster = Cluster(
         get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1"),
@@ -111,7 +116,36 @@ def get_collection(bucket: str, scope: str, collection: str):
         ),
     )
 
-    return cluster.bucket(bucket).scope(scope).collection(collection)
+    try:
+        cb_bucket = cluster.bucket(bucket)
+        scopes = cb_bucket.collections().get_all_scopes()
+    except CouchbaseException as e:
+        LOG.error("Failed to access bucket '%s': %s", bucket, e)
+        raise SystemExit(1)
+
+    scope_names = {s.name: s for s in scopes}
+
+    if scope not in scope_names:
+        LOG.error(
+            "Couchbase scope does not exist: '%s' (bucket: '%s')",
+            scope,
+            bucket,
+        )
+        raise SystemExit(1)
+
+    collection_names = {c.name for c in scope_names[scope].collections}
+
+    if collection not in collection_names:
+        LOG.error(
+            "Couchbase collection does not exist: '%s' (bucket: '%s', scope: '%s')",
+            collection,
+            bucket,
+            scope,
+        )
+        raise SystemExit(1)
+
+    # Safe: existence confirmed via management API
+    return cb_bucket.scope(scope).collection(collection)
 
 
 # ---------------------------------------------------------------------------
