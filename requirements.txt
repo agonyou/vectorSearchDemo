@@ -4,3 +4,4 @@ couchbase
 sentence-transformers
 torch
 tqdm
+Flask>=3.0
