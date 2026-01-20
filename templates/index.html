@@ -25,15 +25,15 @@
 
         <div class="content">
             <section id="content1">
-                <button onclick="setCmd('python load.py --foo --bar --baz')">Load</button>
+                <button onclick="setCmd('python load.py --data data/dataset.csv --text-fields subject message_body --bucket vectorSearchDemo --scope _default --collection emails --copy-fields subject sender receiver message_body --limit 5 --id-field sender timestamp')">Load 5 emails</button>
             </section>
 
             <section id="content2">
-                <button onclick="setCmd('python rag.py')">RAG</button>
+                <button onclick="setCmd('python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title ReleaseYear Director --limit 5 --id-field Title ReleaseYear')">Load 5 Movie Plots</button>
             </section>
 
             <section id="content3">
-                <button onclick="setCmd('python test.py')">Test</button>
+                <button onclick="setCmd('python load.py --data data/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id')">Load 5 Yelp Businesses</button>
             </section>
         </div>
     </div>

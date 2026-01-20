@@ -115,7 +115,7 @@ python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --buc
 **Hybrid** - load businesses from the [Yelp Dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset): yelp_academic_dataset_business.json
 
 ```bash
-python load.py --datadata/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id
+python load.py --data data/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id
 ```
 
 # Step 2: Create the indexes
