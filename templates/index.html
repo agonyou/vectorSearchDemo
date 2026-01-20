@@ -4,74 +4,8 @@
 <meta charset="utf-8" />
 <title>Command Runner</title>
 
-<style>
-body {
-    font-family: system-ui, sans-serif;
-    background: #f6f7f9;
-    padding: 20px;
-}
+<link rel="stylesheet" href="/static/app.css">
 
-.container {
-    max-width: 900px;
-    margin: auto;
-}
-
-input[type=text] {
-    width: 100%;
-    padding: 10px;
-    font-family: monospace;
-    margin-bottom: 10px;
-}
-
-textarea {
-    width: 100%;
-    height: 300px;
-    padding: 10px;
-    font-family: monospace;
-    background: #111;
-    color: #0f0;
-}
-
-button {
-    padding: 8px 12px;
-    margin-right: 6px;
-    cursor: pointer;
-}
-
-.run {
-    background: #2563eb;
-    color: white;
-    border: none;
-}
-
-.tabs input[type="radio"] {
-  display: none;
-}
-
-.tabs label {
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  background: #ddd;
-}
-
-.tabs input:checked + label {
-  background: #fff;
-  border-bottom: 2px solid #000;
-}
-
-.content section {
-  display: none;
-  padding: 1rem;
-  border: 1px solid #ccc;
-}
-
-#tab1:checked ~ .content #content1,
-#tab2:checked ~ .content #content2,
-#tab3:checked ~ .content #content3 {
-  display: block;
-}
-
-</style>
 </head>
 
 <body>
@@ -79,28 +13,29 @@ button {
     <h1>Couchbase Vector Search Demo</h1>
 
     <div class="tabs">
-    <input type="radio" name="tabs" id="tab1" checked>
-    <label for="tab1">Composite</label>
+        <h3>Load Data</h3>
+        <input type="radio" name="tabs" id="tab1" checked>
+        <label for="tab1">Composite</label>
 
-    <input type="radio" name="tabs" id="tab2">
-    <label for="tab2">Hyperscale</label>
+        <input type="radio" name="tabs" id="tab2">
+        <label for="tab2">Hyperscale</label>
 
-    <input type="radio" name="tabs" id="tab3">
-    <label for="tab3">Hybrid (FTS)</label>
+        <input type="radio" name="tabs" id="tab3">
+        <label for="tab3">Hybrid (FTS)</label>
 
-    <div class="content">
-        <section id="content1">
-            <button onclick="setCmd('python load.py --foo --bar --baz')">Load</button>
-        </section>
+        <div class="content">
+            <section id="content1">
+                <button onclick="setCmd('python load.py --foo --bar --baz')">Load</button>
+            </section>
 
-        <section id="content2">
-             <button onclick="setCmd('python rag.py')">RAG</button>
-        </section>
+            <section id="content2">
+                <button onclick="setCmd('python rag.py')">RAG</button>
+            </section>
 
-        <section id="content3">
-            <button onclick="setCmd('python test.py')">Test</button>
-        </section>
-    </div>
+            <section id="content3">
+                <button onclick="setCmd('python test.py')">Test</button>
+            </section>
+        </div>
     </div>
 
     <input id="cmd" type="text" placeholder="Enter command..." />
@@ -108,6 +43,39 @@ button {
     <button class="run" onclick="run()">Run</button>
 
     <textarea id="output" readonly></textarea>
+
+    <div class="tabs">
+        <h3>RAG in action</h3>
+        <input type="radio" name="tabsB" id="tab4" checked>
+        <label for="tab4">Composite</label>
+
+        <input type="radio" name="tabsB" id="tab5">
+        <label for="tab5">Hyperscale</label>
+
+        <input type="radio" name="tabsB" id="tab6">
+        <label for="tab6">Hybrid (FTS)</label>
+
+        <div class="content">
+            <section id="content4">
+                <input type="text" placeholder="Email sender" value="john.doe@example.com" />
+                <input type="text" placeholder="Email receiver" value="support@aetheros.com" />
+                <input type="text" placeholder="Prompt" value="What topics does John Doe most discuss?" />
+                <button>Test</button>
+            </section>
+
+            <section id="content5">
+                <input type="text" placeholder="Prompt" value="What are some movies that involve escapes?" />
+                <button>Test</button>
+            </section>
+
+            <section id="content6">
+                <input type="text" placeholder="Latitude" value="34.426678" />
+                <input type="text" placeholder="Longitude" value="-119.711196" />
+                <input type="text" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
+                <button>Test</button>
+            </section>
+        </div>
+    </div>
 </div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
