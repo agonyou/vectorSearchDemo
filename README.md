@@ -167,12 +167,11 @@ The `ragXYZ.py` programs are interactive command line programs that allows you t
 ## Composite
 
 ```SQL
+
 SELECT RAW e.contents
 FROM `email`.`_default`.`_default` e
-WHERE  ANY s IN e.sender SATISFIES s == $sender END
-AND (ANY r IN e.receivers.to SATISFIES r == $receiver END
-OR ANY r IN e.receivers.cc SATISFIES r == $receiver END
-OR ANY r IN e.receivers.bcc SATISFIES r == $receiver END)
+WHERE e.sender == $sender
+AND e.receiver == $receiver
 ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, <vector of prompt goes here>, "COSINE")
 LIMIT 5
 ```
@@ -190,6 +189,16 @@ This content will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-
 Example executions:
 
 ## Composite
+
+To execute a RAG prompt with Composite Vector Query:
+
+```bash
+python ragComposite.py --bucket vectorSearchDemo --scope _default --collection emails --prompt "Who is mentioned most?" --sender jim@example.com
+```
+
+If you don't use `--prompt` then the program will run interactively, asking you from a prompt and filters.
+
+Sample execution:
 
 ```bash
 == Couchbase Composite Vector RAG Demo ===
@@ -212,6 +221,18 @@ TODO
 ## Hybrid (FTS)
 
 TODO
+
+# UI Experience
+
+If you prefer a more "out of the box" or UI experience, you can also run a web application wrapper:
+
+```bash
+python app.py
+```
+
+This will give you options to run the same scripts from a single web app.
+
+TODO: screenshots?
 
 # What's next?
 

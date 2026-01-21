@@ -60,22 +60,25 @@
                 <input type="text" placeholder="Email sender" value="john.doe@example.com" />
                 <input type="text" placeholder="Email receiver" value="support@aetheros.com" />
                 <input type="text" placeholder="Prompt" value="What topics does John Doe most discuss?" />
-                <button>Test</button>
+                <button class="run">Query</button>
             </section>
 
             <section id="content5">
                 <input type="text" placeholder="Prompt" value="What are some movies that involve escapes?" />
-                <button>Test</button>
+                <button class="run">Query</button>
             </section>
 
             <section id="content6">
                 <input type="text" placeholder="Latitude" value="34.426678" />
                 <input type="text" placeholder="Longitude" value="-119.711196" />
+                <input type="text" placeholder="Radius" value="5mi" />
                 <input type="text" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
-                <button>Test</button>
+                <button class="run">Query</button>
             </section>
         </div>
     </div>
+
+    <textarea id="outputQuery" readonly></textarea>
 </div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>

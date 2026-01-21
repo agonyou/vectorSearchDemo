@@ -1,36 +1,34 @@
 #!/usr/bin/env python3
 """
-Interactive RAG demo using Couchbase Composite Vector Queries.
+Interactive or CLI-driven RAG demo using Couchbase Composite Vector Queries.
 
-Vector embeddings:
-- Uses OpenAI embeddings if OPENAI_API_KEY is set
-- Falls back to local sentence-transformers if not
-
-LLM generation:
-- Always uses OpenAI
-- Fails fast with a helpful message if OPENAI_API_KEY is missing
+Rules:
+- --bucket, --scope, --collection are REQUIRED
+- If ANY user-input CLI args are provided, ALL must be provided
+- Otherwise, user inputs are collected interactively
 """
 
 from __future__ import annotations
 
-import json
+import argparse
 import logging
 import os
 import sys
-from typing import List
-from openai import OpenAI
-from dotenv import load_dotenv
+from dataclasses import dataclass
+from typing import List, Optional
 
-# Load env vars early
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# ------------------------------------------------------------
+# Setup
+# ------------------------------------------------------------
+
 load_dotenv()
 
 LOG = logging.getLogger("rag")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-
-# ------------------------------------------------------------
-# Environment helpers
-# ------------------------------------------------------------
 
 def get_env(name: str, default: str | None = None, required: bool = False) -> str | None:
     val = os.getenv(name, default)
@@ -41,21 +39,42 @@ def get_env(name: str, default: str | None = None, required: bool = False) -> st
 
 
 # ------------------------------------------------------------
-# Embedding helpers (OpenAI OR local)
+# Dataset / Query Configuration
+# ------------------------------------------------------------
+
+@dataclass
+class RAGConfig:
+    bucket: str
+    scope: str
+    collection: str
+
+    embedding_field: str = "embedding"
+    content_field: str = "contents"
+
+    limit: int = 5
+
+
+def load_config_from_args(args) -> RAGConfig:
+    return RAGConfig(
+        bucket=args.bucket,
+        scope=args.scope,
+        collection=args.collection,
+    )
+
+
+# ------------------------------------------------------------
+# Embeddings
 # ------------------------------------------------------------
 
 _openai_client = None
 _st_model = None
 
+
 def compute_embedding(text: str) -> List[float]:
     """
-    Compute a vector embedding for the given text.
-
-    Order:
-    1. SentenceTransformer (only if SENTENCE_TRANSFORMER_MODEL is set)
-    2. OpenAI embeddings fallback
-
-    Caches models so repeated calls are fast.
+    Compute an embedding using:
+    1) SentenceTransformer (if configured)
+    2) OpenAI fallback
     """
     global _st_model, _openai_client
 
@@ -66,25 +85,16 @@ def compute_embedding(text: str) -> List[float]:
             if _st_model is None:
                 LOG.info("Loading SentenceTransformer: %s", st_model_name)
                 from sentence_transformers import SentenceTransformer
-
                 _st_model = SentenceTransformer(st_model_name)
 
             return _st_model.encode(text).tolist()
-
         except Exception as e:
-            LOG.warning(
-                "SentenceTransformer failed, falling back to OpenAI: %s", e
-            )
+            LOG.warning("SentenceTransformer failed, falling back to OpenAI: %s", e)
 
-    openai_api_key = get_env("OPENAI_API_KEY")
-    if not openai_api_key:
-        raise RuntimeError(
-            "No embedding provider available: "
-            "set SENTENCE_TRANSFORMER_MODEL or OPENAI_API_KEY"
-        )
+    api_key = get_env("OPENAI_API_KEY", required=True)
 
     if _openai_client is None:
-        _openai_client = OpenAI(api_key=openai_api_key)
+        _openai_client = OpenAI(api_key=api_key)
 
     model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
@@ -92,40 +102,31 @@ def compute_embedding(text: str) -> List[float]:
         model=model,
         input=text,
     )
+
     return resp.data[0].embedding
 
 
 # ------------------------------------------------------------
-# OpenAI LLM (required)
+# LLM Generation
 # ------------------------------------------------------------
 
 def generate_with_llm(prompt: str, context: str) -> str:
-    """
-    Generate a response using retrieved context.
-    Uses OpenAI Chat Completions (openai >= 1.0).
-    """
-    openai_api_key = get_env("OPENAI_API_KEY")
-    if not openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for generation")
-
-    client = OpenAI(api_key=openai_api_key)
+    api_key = get_env("OPENAI_API_KEY", required=True)
+    client = OpenAI(api_key=api_key)
 
     model = get_env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
-    system_prompt = (
-        "You are an assistant answering questions using only the provided context. "
-        "If the context does not contain enough information, say so clearly."
-    )
-
     messages = [
-        {"role": "system", "content": system_prompt},
+        {
+            "role": "system",
+            "content": (
+                "You answer questions using only the provided context. "
+                "If the context is insufficient, say so plainly."
+            ),
+        },
         {
             "role": "user",
-            "content": f"""Context:
-{context}
-
-Prompt:
-{prompt}""",
+            "content": f"Context:\n{context}\n\nPrompt:\n{prompt}",
         },
     ]
 
@@ -139,139 +140,142 @@ Prompt:
 
 
 # ------------------------------------------------------------
-# Couchbase helpers
+# Couchbase
 # ------------------------------------------------------------
 
-def get_collection():
+def get_cluster():
     from couchbase.cluster import Cluster, ClusterOptions
     from couchbase.auth import PasswordAuthenticator
 
-    conn_str = get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1")
-    username = get_env("COUCHBASE_USERNAME", "Administrator")
-    password = get_env("COUCHBASE_PASSWORD", "password")
-
-    bucket = get_env("COUCHBASE_BUCKET", "default")
-    scope = get_env("COUCHBASE_SCOPE", "_default")
-    collection = get_env("COUCHBASE_COLLECTION", "_default")
-
-    cluster = Cluster(
-        conn_str,
-        ClusterOptions(PasswordAuthenticator(username, password)),
+    return Cluster(
+        get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1"),
+        ClusterOptions(
+            PasswordAuthenticator(
+                get_env("COUCHBASE_USERNAME", "Administrator"),
+                get_env("COUCHBASE_PASSWORD", "password"),
+            )
+        ),
     )
 
-    coll = cluster.bucket(bucket).scope(scope).collection(collection)
-
-    return {
-        "cluster": cluster,
-        "bucket": bucket,
-        "scope": scope,
-        "collection": collection,
-        "collection_obj": coll,
-    }
-
-
-# ------------------------------------------------------------
-# Composite vector query
-# ------------------------------------------------------------
 
 def run_composite_query(
     cluster,
-    bucket: str,
-    scope: str,
-    collection: str,
+    cfg: RAGConfig,
     query_embedding: List[float],
-    sender: str | None,
-    receiver: str | None,
-    limit: int = 5,
+    sender: Optional[str],
+    receiver: Optional[str],
 ) -> List[str]:
-    """
-    Run a composite vector query:
-    - Structured filters (sender / receiver)
-    - k-NN over embedding
-    """
     where_clauses = []
     params = {
         "vector": query_embedding,
-        "limit": limit,
+        "limit": cfg.limit,
     }
 
-    # sender is a scalar object, not an array
     if sender:
-        where_clauses.append(" ANY s IN e.sender SATISFIES s == $sender END ")
+        where_clauses.append(
+            f" e.sender == $sender "
+        )
         params["sender"] = sender
 
-    # receivers is an object with arrays (to/cc/bcc)
     if receiver:
-        where_clauses.append(
-            """
-            (
-              ANY r IN e.receivers.to SATISFIES r == $receiver END
-              OR ANY r IN e.receivers.cc SATISFIES r == $receiver END
-              OR ANY r IN e.receivers.bcc SATISFIES r == $receiver END
-            )
-            """
-        )
+        where_clauses.append(f" e.receiver == $receiver")
         params["receiver"] = receiver
 
-    where_sql = ""
-    if where_clauses:
-        where_sql = "WHERE " + " AND ".join(where_clauses)
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     statement = f"""
-    SELECT RAW e.contents
-    FROM `{bucket}`.`{scope}`.`{collection}` e
+    SELECT RAW e.{cfg.content_field}
+    FROM `{cfg.bucket}`.`{cfg.scope}`.`{cfg.collection}` e
     {where_sql}
-    ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, $vector, "COSINE")
+    ORDER BY APPROX_VECTOR_DISTANCE(e.{cfg.embedding_field}, $vector, "COSINE")
     LIMIT $limit
     """
 
-    rows = cluster.query(statement,**params)
+    print("\n=== Query ===\n")
+    print(statement, {**params, "vector": "<removed>"})
 
-    return [row for row in rows]
+    return [row for row in cluster.query(statement, **params)]
 
 
 # ------------------------------------------------------------
-# Interactive CLI
+# CLI / Input Handling
+# ------------------------------------------------------------
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Composite Vector RAG Demo")
+
+    # Required dataset args
+    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--scope", required=True)
+    parser.add_argument("--collection", required=True)
+
+    # Optional user-input args
+    parser.add_argument("--prompt")
+    parser.add_argument("--sender")
+    parser.add_argument("--receiver")
+
+    return parser.parse_args()
+
+
+def resolve_inputs(args):
+    any_cli_inputs = any([args.prompt, args.sender, args.receiver])
+
+    if any_cli_inputs:
+        if not args.prompt:
+            LOG.error("When using CLI mode, --prompt is required, at least one filter is recommended")
+            sys.exit(1)
+        return args.prompt, args.sender, args.receiver
+
+    # Interactive user inputs
+    sender = input("Filter by sender (exact match): ").strip() or None
+    receiver = input("Filter by receiver (exact match): ").strip() or None
+    prompt = input("\nEnter your prompt:\n> ").strip()
+
+    if not prompt:
+        print("Prompt required")
+        sys.exit(1)
+
+    return prompt, sender, receiver
+
+
+# ------------------------------------------------------------
+# Main
 # ------------------------------------------------------------
 
 def main():
     print("\n=== Couchbase Composite Vector RAG Demo ===\n")
 
-    sender = input('Filter by sender (exact match): ').strip() or None
-    receiver = input("Filter by receiver field (exact match): ").strip() or None
+    args = parse_args()
+    prompt, sender, receiver = resolve_inputs(args)
 
-    prompt = input("\nEnter your prompt:\n> ").strip()
-    if not prompt:
-        print("Prompt required")
-        return
+    cfg = load_config_from_args(args)
+    cluster = get_cluster()
 
-    LOG.info("Computing embedding for prompt")
+    LOG.info("Computing embedding")
     embedding = compute_embedding(prompt)
 
-    cb = get_collection()
-
-    LOG.info("Running composite vector search")
-    context_chunks = run_composite_query(
-        cluster=cb["cluster"],
-        bucket=cb["bucket"],
-        scope=cb["scope"],
-        collection=cb["collection"],
+    LOG.info("Running composite vector query")
+    chunks = run_composite_query(
+        cluster=cluster,
+        cfg=cfg,
         query_embedding=embedding,
         sender=sender,
         receiver=receiver,
-        limit=5,
     )
 
-    if not context_chunks:
+    if not chunks:
         print("\nNo matching context found.")
         return
 
-    context = "\n\n---\n\n".join(context_chunks)
+    context = "\n\n---\n\n".join(chunks)
 
-    response = generate_with_llm(prompt, context)
+    print("\n=== Context to Augment with ===\n")
+    print(context)
+
+    answer = generate_with_llm(prompt, context)
 
     print("\n=== Answer ===\n")
-    print(response)
+    print(answer)
 
 
 if __name__ == "__main__":
