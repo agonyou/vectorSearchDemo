@@ -126,7 +126,7 @@ Once the data is loaded, create index(es).
 
 ```SQL
 CREATE INDEX `idx_comp_vector_email`
-ON `email`(`embedding` VECTOR,`sender`,`receivers`)
+ON `emails`(`embedding` VECTOR,`sender`,`receivers`)
 WITH {  "dimension":384, "similarity":"DOT", "description":"IVF,SQ8" }
 ```
 
@@ -141,20 +141,51 @@ Test the index with a query like:
 ```SQL
 WITH anEmail AS (
     SELECT RAW embedding
-    from `email`.`_default`.`_default` e
-    WHERE e.timestamp = '2009-12-18 02:12:30.7799'
+    from `vectorSearchDemo`.`_default`.`emails` x
+    USE KEYS ["Aetheros Support <support@aetheros.com>::2023-10-26T03:42:15Z"]
 )
-SELECT e.sender, e.receivers, e.content
-FROM `email`.`_default`.`_default` e
-ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail.embedding[0],"DOT")
+SELECT e.sender, e.receiver, e.content
+FROM `vectorSearchDemo`.`_default`.`emails` e
+ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail[0],"DOT")
 LIMIT 5;
 ```
 
 The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semanticall similar. Not a very useful query, but it helps us to verify the index is working.
 
-## [Hyperscale Vector Index]()
+## [Hyperscale Vector Index](https://docs.couchbase.com/cloud/vector-index/hyperscale-vector-index.html)
 
-TODO
+```SQL
+CREATE VECTOR INDEX `idx_hyperscale_plot`
+ON `vectorSearchDemo`.`_default`.`movies`(`embedding` VECTOR)
+WITH {
+  "dimension": 384,
+  "similarity": "COSINE",
+  "description": "IVF,SQ8"
+};
+```
+
+Important notes:
+* `COSINE` similarity here is good for text comparison.
+* `IVF` with no number allows Capella to choose an appropriate number of centroids
+* `dimension` needs to be correct for the model you're using
+
+Test the index with a query like:
+
+```SQL
+WITH aMovie AS (
+    SELECT RAW m.embedding
+    FROM `vectorSearchDemo`.`_default`.`movies` AS m
+    WHERE m.Title = "Alice in Wonderland"
+    LIMIT 1
+)
+SELECT m.Title, m.ReleaseYear, approx_distance
+FROM `vectorSearchDemo`.`_default`.`movies` AS m
+LET approx_distance = APPROX_VECTOR_DISTANCE(
+    m.embedding, aMovie[0], "COSINE", 3
+)
+ORDER BY approx_distance
+LIMIT 5;
+```
 
 ## [Hybrid (FTS) Vector Index]()
 
@@ -167,7 +198,6 @@ The `ragXYZ.py` programs are interactive command line programs that allows you t
 ## Composite
 
 ```SQL
-
 SELECT RAW e.contents
 FROM `email`.`_default`.`_default` e
 WHERE e.sender == $sender
