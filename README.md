@@ -197,6 +197,8 @@ The `ragXYZ.py` programs are interactive command line programs that allows you t
 
 ## Composite
 
+This is the form of query that will be used for RAG+Composite Query. Note the predicates being used.
+
 ```SQL
 SELECT RAW e.contents
 FROM `email`.`_default`.`_default` e
@@ -208,7 +210,17 @@ LIMIT 5
 
 ## Hyperscale
 
-TODO
+This is the form of query that will be used for RAG+Hyperscale Query. Note that it's entirely based on knn.
+
+```SQL
+SELECT RAW m.contents
+FROM `vectorSearchDemo`.`_default`.`movies` AS m
+LET approx_distance = APPROX_VECTOR_DISTANCE(
+    m.embedding, <embedding>, "COSINE", 3
+)
+ORDER BY approx_distance
+LIMIT 5;
+```
 
 ## Hybrid (FTS)
 
