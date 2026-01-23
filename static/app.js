@@ -39,3 +39,32 @@ async function runCommand(cmdInputId, outputId) {
         output.scrollTop = output.scrollHeight;
     }
 }
+
+function setRagCmdComposite() {
+    const sender = document.getElementById('sender').value.trim();
+    const receiver = document.getElementById('receiver').value.trim();
+    const prompt = document.getElementById('prompt').value.trim();
+
+    const bucket = 'vectorSearchDemo';
+    const scope = '_default';
+    const collection = 'emails';
+
+    let cmd = `python ragComposite.py ` +
+              `--bucket ${bucket} ` +
+              `--scope ${scope} ` +
+              `--collection ${collection}`;
+
+    if (sender) {
+        cmd += ` --sender "${sender}"`;
+    }
+
+    if (receiver) {
+        cmd += ` --receiver "${receiver}"`;
+    }
+
+    if (prompt) {
+        cmd += ` --prompt "${prompt}"`;
+    }
+
+    setRagCmd(cmd);
+}
