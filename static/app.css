@@ -122,7 +122,8 @@ button:hover {
 #tab3:checked ~ .content #content3,
 #tab4:checked ~ .content #content4,
 #tab5:checked ~ .content #content5,
-#tab6:checked ~ .content #content6 {
+#tab6:checked ~ .content #content6, 
+#tab7:checked ~ .content #content7 {
   display: block;
 }
 
@@ -135,4 +136,12 @@ button:hover {
 
 .content form button {
   align-self: flex-start;
+}
+
+/* Images inside tab content */
+.content img.tab-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin-top: 1rem;
 }

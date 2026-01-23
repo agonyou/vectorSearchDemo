@@ -1,10 +1,22 @@
-function setCmd(value) {
-    document.getElementById('cmd').value = value;
+function setLoadCmd(value) {
+    document.getElementById('loadCmd').value = value;
 }
 
-async function run() {
-    const cmd = document.getElementById('cmd').value;
-    const output = document.getElementById('output');
+function setRagCmd(value) {
+    document.getElementById('ragCmd').value = value;
+}
+
+async function runLoad() {
+    return runCommand('loadCmd', 'outputLoad');
+}
+
+async function runRag() {
+    return runCommand('ragCmd', 'outputQuery');
+}
+
+async function runCommand(cmdInputId, outputId) {
+    const cmd = document.getElementById(cmdInputId).value;
+    const output = document.getElementById(outputId);
 
     output.value = '';
     output.scrollTop = 0;

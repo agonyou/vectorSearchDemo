@@ -23,26 +23,36 @@
         <input type="radio" name="tabs" id="tab3">
         <label for="tab3">Hybrid (FTS)</label>
 
+        <input type="radio" name="tabs" id="tab7">
+        <label for="tab7">AI Services</label>
+
         <div class="content">
             <section id="content1">
-                <button onclick="setCmd('python load.py --data data/dataset.csv --text-fields subject message_body --bucket vectorSearchDemo --scope _default --collection emails --copy-fields subject sender receiver message_body --limit 5 --id-field sender timestamp')">Load 5 emails</button>
+                <button onclick="setLoadCmd('python load.py --data data/dataset.csv --text-fields subject message_body --bucket vectorSearchDemo --scope _default --collection emails --copy-fields subject sender receiver message_body --limit 5 --id-field sender timestamp')">Load 5 emails</button>
             </section>
 
             <section id="content2">
-                <button onclick="setCmd('python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title ReleaseYear Director --limit 5 --id-field Title ReleaseYear')">Load 5 Movie Plots</button>
+                <button onclick="setLoadCmd('python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title ReleaseYear Director --limit 5 --id-field Title ReleaseYear')">Load 5 Movie Plots</button>
             </section>
 
             <section id="content3">
-                <button onclick="setCmd('python load.py --data data/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id')">Load 5 Yelp Businesses</button>
+                <button onclick="setLoadCmd('python load.py --data data/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id')">Load 5 Yelp Businesses</button>
+            </section>
+
+            <section id="content7">
+                Instead of loading and vectorizing data yourself, you can use AI Services to vectorize data
+                and store data during loading.
+                See the <a href="https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html" target="_blank">AI Services documentation</a> for more details.
+                <img class="tab-image" src="/static/aiServicesScreenShot.png" alt="AI Services Vectorization" />
             </section>
         </div>
     </div>
 
-    <input id="cmd" type="text" placeholder="Enter command..." />
+    <input id="loadCmd" type="text" placeholder="Enter command..." />
 
-    <button class="run" onclick="run()">Run</button>
+    <button class="run" onclick="runLoad()">Run</button>
 
-    <textarea id="output" readonly></textarea>
+    <textarea id="outputLoad" readonly></textarea>
 
     <div class="tabs">
         <h3>RAG in action</h3>
@@ -60,7 +70,7 @@
                 <input type="text" placeholder="Email sender" value="john.doe@example.com" />
                 <input type="text" placeholder="Email receiver" value="support@aetheros.com" />
                 <input type="text" placeholder="Prompt" value="What topics does John Doe most discuss?" />
-                <button class="run">Query</button>
+                <button onclick="setRagCmd('python --foo --bar --baz')">Query</button>
             </section>
 
             <section id="content5">
@@ -77,6 +87,11 @@
             </section>
         </div>
     </div>
+
+    <input id="ragCmd" type="text" placeholder="Enter command..." />
+
+    <button class="run" onclick="runRag()">Run</button>
+
 
     <textarea id="outputQuery" readonly></textarea>
 </div>
