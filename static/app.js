@@ -68,3 +68,20 @@ function setRagCmdComposite() {
 
     setRagCmd(cmd);
 }
+
+function setRagCmdHyperscale() {
+    const prompt = document.getElementById('hyperPrompt').value.trim();
+
+    const bucket = 'vectorSearchDemo';
+    const scope = '_default';
+    const collection = 'movies';
+
+    let cmd = `python ragHyperscale.py ` +
+              `--bucket ${bucket} ` +
+              `--scope ${scope} ` +
+              `--collection ${collection}`;
+
+    cmd += ` --prompt "${prompt}"`;
+
+    setRagCmd(cmd);
+}
