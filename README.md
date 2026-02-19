@@ -189,7 +189,10 @@ LIMIT 5;
 
 ## [Hybrid (FTS) Vector Index]()
 
-TODO
+Import "hybridIndex.json" into a Capella Search index. Note that the number of dimensions must match the model you're using (384 for local sentence transformers, 1536 for OpenAI, etc).
+
+Important notes:
+* `cosine` is used because it's good for text comparison
 
 # Step 3: Perform a RAG operation
 
@@ -224,11 +227,26 @@ LIMIT 5;
 
 ## Hybrid (FTS)
 
-TODO
+The Hybrid query (geospatial+vector) is contructed using the Python SDK:
 
-This content will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
+```python
+geo_filter = GeoDistanceQuery(
+    location=(cfg.longitude, cfg.latitude),  # (lon, lat)
+    distance=cfg.radius_miles,
+    field="location"
+)
 
-Example executions:
+vector_query = VectorQuery.create(
+    field_name="embedding",
+    vector=query_embedding,
+    num_candidates=3,
+    prefilter=geo_filter
+)
+
+vector_search = VectorSearch.from_vector_query(vector_query)
+```
+
+This query will ultimately return the best matching documents by ID, along with a score. You can embed content fields in the index, but another common pattern that is often used is to perform KV lookups with the resulting IDs. The content gathered in this way will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
 
 ## Composite
 
@@ -238,7 +256,7 @@ To execute a RAG prompt with Composite Vector Query:
 python ragComposite.py --bucket vectorSearchDemo --scope _default --collection emails --prompt "Who is mentioned most?" --sender jim@example.com
 ```
 
-If you don't use `--prompt` then the program will run interactively, asking you from a prompt and filters.
+If you don't use `--prompt` then the program will run interactively, asking you for a prompt and filters.
 
 Sample execution:
 
@@ -258,11 +276,80 @@ Wayne most discusses ETF Venture Funds and the National Venture Capital Associat
 
 ## Hyperscale
 
-TODO
+To execute a RAG prompt with Hyperscale Query:
+
+```bash
+python ragHyperscale.py --bucket vectorSearchDemo --scope _default --collection movies --prompt "What are some movies that involve escapes?"
+```
+
+If you don't use `--prompt`, the program will run interactively, asking you for a prompt.
+
+Sample execution:
+
+```bash
+=== Couchbase Hyperscale Vector RAG Demo ===
+
+...
+
+=== Query ===
+
+    SELECT RAW 'Title: ' || m.Title || ': ' || m.contents
+    FROM `vectorSearchDemo`.`_default`.`movies` m
+    ORDER BY APPROX_VECTOR_DISTANCE(m.embedding, $vector, "COSINE", 3)
+    LIMIT $limit
+     {'vector': '<removed>', 'limit': 5}
+
+=== Context to Augment with ===
+
+Title: For Her Sake: The film is a period drama taking place right before the start of the...
+---
+Title: The Suburbanite: The film is about a family who move to the suburbs, hoping for a ...
+---
+Title: The Great Train Robbery: The film opens with two bandits breaking into a railroad telegraph ...
+---
+Title: The Pasha's Daughter: The film begins with Jack Sparks, a young American, who is traveling...
+---
+Title: Youth's Endearing Charm: The film is about a court case and embezzlement.
+
+=== Answer ===
+
+The following movies from the provided context involve escapes:
+
+1. **For Her Sake** - The girl helps her lover escape from captivity by giving him a file to free himself from the bars, and they flee on horseback.
+2. **The Pasha's Daughter** - Jack Sparks escapes from prison by digging out the bar of his cell window and overpowering a guard before climbing over the wall into the courtyard of the Pasha's palace.
+
+=== finished ===
+```
 
 ## Hybrid (FTS)
 
-TODO
+To execute a RAG prompt with Hybrid Query:
+
+```bash
+python ragHybrid.py --bucket vectorSearchDemo --scope _default --collection yelp --prompt "Where can I go for various health and wellness services?" --latitude 34.426678 --longitude -119.711196 --radius 5mi
+```
+
+If you don't use `--prompt`, `--latitude`, `--longitude`, and `--radius`, the program will run interactively, asking you for all of these data points.
+
+Sample execution:
+
+```bash
+=== Couchbase Hybrid Vector RAG Demo ===
+
+...
+
+=== Context to Augment with ===
+
+Name: Abby Rappoport, LAC, CMQ
+
+Doctors, Traditional Chinese Medicine, Naturopathic/Holistic, Acupuncture, Health & Medical, Nutritionists
+
+=== Answer ===
+
+You can go to Abby Rappoport, who offers services in Traditional Chinese Medicine, Naturopathic/Holistic approaches, Acupuncture, and Nutrition.
+
+=== finished ===
+```
 
 # UI Experience
 
@@ -274,10 +361,13 @@ python app.py
 
 This will give you options to run the same scripts from a single web app.
 
-TODO: screenshots?
+![Loading data](/images/screenshotLoad.png "Loading dataset")
+
+![Loading data](/images/screenshotRag.png "Performing RAG")
+
 
 # What's next?
 
-* Composite: Try similar prompts with different senders/receivers to see how the result differs.
-* Hybrid (FTS): Try a radius search from a few blocks away (with the same prompt) and see how the result differs.
-* Hyperscale: TODO (maybe adjust tuneables like nprobes to see how the result differs?)
+* Composite: Try similar prompts with different senders/receivers to see how the result differ.
+* Hybrid (FTS): Try a radius search from a few blocks away (with the same prompt) and see how the result differ.
+* Hyperscale: Adjust tuneables like nprobes to see how the result differs.

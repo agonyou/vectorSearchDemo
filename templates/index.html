@@ -82,11 +82,11 @@
             </section>
 
             <section id="content6">
-                <input type="text" placeholder="Latitude" value="34.426678" />
-                <input type="text" placeholder="Longitude" value="-119.711196" />
-                <input type="text" placeholder="Radius" value="5mi" />
-                <input type="text" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
-                <button>Query</button>
+                <input type="text" id="hybridLatitude" placeholder="Latitude" value="34.426678" />
+                <input type="text" id="hybridLongitude" placeholder="Longitude" value="-119.711196" />
+                <input type="text" id="hybridRadius" placeholder="Radius" value="5mi" />
+                <input type="text" id="hybridPrompt" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
+                <button onclick="setRagCmdHybrid()">Query</button>
             </section>
         </div>
     </div>

@@ -85,3 +85,30 @@ function setRagCmdHyperscale() {
 
     setRagCmd(cmd);
 }
+
+function setRagCmdHybrid() {
+    const prompt = document.getElementById('hybridPrompt').value.trim();
+
+    const bucket = 'vectorSearchDemo';
+    const scope = '_default';
+    const collection = 'yelp';
+
+    const latitude = document.getElementById('hybridLatitude').value.trim();
+    const longitude = document.getElementById('hybridLongitude').value.trim();
+    const radius = document.getElementById('hybridRadius').value.trim();
+
+    let cmd = `python ragHybrid.py ` +
+              `--bucket ${bucket} ` +
+              `--scope ${scope} ` +
+              `--collection ${collection}`;
+
+    if (prompt) {
+        cmd += ` --prompt "${prompt}"`;
+    }
+
+    if (latitude && longitude && radius) {
+        cmd += ` --latitude ${latitude} --longitude ${longitude} --radius ${radius}`;
+    }
+
+    setRagCmd(cmd);
+}

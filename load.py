@@ -62,6 +62,23 @@ def log_safe_doc(doc_id: str, doc: dict) -> None:
     safe["contents"] = truncate(safe["contents"], 200) + "…"
     LOG.info("doc_id=%s\n%s", doc_id, json.dumps(safe, indent=2))
 
+# to handle data sets (like Yelp) where latitude and longitude are separate root fields
+def maybe_add_location(doc: dict, row: dict) -> None:
+    """
+    If row contains lat/lon or latitude/longitude at root,
+    add a derived 'location' geopoint to doc.
+    """
+    lat = row.get("lat") or row.get("latitude")
+    lon = row.get("lon") or row.get("longitude")
+
+    try:
+        if "location" not in doc and lat is not None and lon is not None:
+            doc["location"] = {
+                "lat": float(lat),
+                "lon": float(lon),
+            }
+    except (TypeError, ValueError):
+        pass
 
 # ---------------------------------------------------------------------------
 # Embeddings
@@ -263,6 +280,7 @@ def main() -> None:
         doc = {f: row.get(f) for f in args.copy_fields}
         doc["contents"] = contents
         doc["embedding"] = embedding
+        maybe_add_location(doc, row)
 
         if args.dry_run:
             log_safe_doc(doc_id, doc)
