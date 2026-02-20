@@ -15,13 +15,12 @@ from typing import List
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from couchbase import search
-from couchbase.search import SearchRequest, MatchAllQuery, SearchOptions
+from couchbase.cluster import Cluster
+from couchbase.options import ClusterOptions
+from couchbase.auth import PasswordAuthenticator
+
+from couchbase.search import SearchRequest, SearchOptions, GeoDistanceQuery
 from couchbase.vector_search import VectorQuery, VectorSearch
-from couchbase.search import (
-    SearchRequest,
-    GeoDistanceQuery
-)
 from couchbase.exceptions import DocumentNotFoundException
 
 # ------------------------------------------------------------
@@ -54,7 +53,7 @@ class RAGConfig:
 
     latitude: float
     longitude: float
-    radius_miles: str
+    radius: str
 
     index_name: str
 
@@ -70,7 +69,7 @@ def load_config_from_args(args, inputs) -> RAGConfig:
         collection=args.collection,
         latitude=float(inputs["latitude"]),
         longitude=float(inputs["longitude"]),
-        radius_miles=inputs["radius"],
+        radius=inputs["radius"],
         index_name=args.index_name,
         limit=args.limit,
     )
@@ -149,7 +148,8 @@ def generate_with_llm(prompt: str, context: str) -> str:
 # ------------------------------------------------------------
 
 def get_cluster():
-    from couchbase.cluster import Cluster, ClusterOptions
+    from couchbase.cluster import Cluster
+    from couchbase.options import ClusterOptions
     from couchbase.auth import PasswordAuthenticator
 
     return Cluster(
@@ -167,18 +167,18 @@ def run_hybrid_query(cluster, cfg: RAGConfig, query_embedding: List[float]) -> L
     scope = cluster.bucket(cfg.bucket).scope(cfg.scope)
     collection = scope.collection(cfg.collection) 
 
-    #cfg.latitude, cgf.longitude, cfg.radius_miles
+    #cfg.latitude, cgf.longitude, cfg.radius
 
     geo_filter = GeoDistanceQuery(
         location=(cfg.longitude, cfg.latitude),  # (lon, lat)
-        distance=cfg.radius_miles,
+        distance=cfg.radius,
         field="location"
     )
 
     vector_query = VectorQuery.create(
         field_name="embedding",
         vector=query_embedding,
-        num_candidates=3,
+        num_candidates=cfg.limit,
         prefilter=geo_filter
     )
 
@@ -235,12 +235,12 @@ def parse_args():
     parser.add_argument("--collection", required=True)
 
     parser.add_argument("--index-name", default="ix-yelp-business-vector")
-    parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--limit", type=int, default=25)
 
     parser.add_argument("--prompt")
     parser.add_argument("--latitude")
     parser.add_argument("--longitude")
-    parser.add_argument("--radius-miles")
+    parser.add_argument("--radius")
 
     return parser.parse_args()
 
@@ -249,7 +249,7 @@ def resolve_inputs(args):
     if args.prompt:
         missing = [x for x in ("latitude", "longitude", "radius_miles") if getattr(args, x) is None]
         if missing:
-            LOG.error("When using CLI mode, --latitude, --longitude, and --radius-miles are required")
+            LOG.error("When using CLI mode, --latitude, --longitude, and --radius are required")
             sys.exit(1)
 
         return {
