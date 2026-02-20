@@ -144,7 +144,8 @@ def generate_with_llm(prompt: str, context: str) -> str:
 # ------------------------------------------------------------
 
 def get_cluster():
-    from couchbase.cluster import Cluster, ClusterOptions
+    from couchbase.cluster import Cluster
+    from couchbase.options import ClusterOptions
     from couchbase.auth import PasswordAuthenticator
 
     return Cluster(
