@@ -1,10 +1,34 @@
 # Email Demo — Couchbase Vector Query Options in action
 
-This demo illustrates the strengths of each vector search option in Couchase.
+This demo shows three different ways to run vector search in Couchbase—**Hyperscale**, **Composite**, and **Hybrid (FTS)**, using real datasets and the same end-to-end flow. You’ll load data, generate embeddings, create the appropriate index, and run a RAG-style query to see how each approach affects relevance, filtering, and query flexibility. Each section uses a different dataset to highlight when one vector search option is a better fit than the others.
 
-Datasets
+In this demo, you will:
+- Load real-world datasets and generate embeddings
+- Create Hyperscale, Composite, and Hybrid vector indexes
+- Run RAG-style queries against each index type
+- Compare how filtering, relevance, and query expressiveness differ
 
-- TODO
+## Demo map
+
+Each vector search option uses a different dataset and script to highlight when that approach is the best fit:
+
+| Vector option | Dataset | Collection | RAG script |
+|--------------|--------|------------|------------|
+| Hyperscale | Wikipedia movie plots | `movies` | `ragHyperscale.py` |
+| Composite | Customer care emails | `emails` | `ragComposite.py` |
+| Hybrid (FTS) | Yelp businesses | `yelp` | `ragHybrid.py` |
+
+(Use the CLI if you want to see the exact queries and tweak parameters; use the UI if you want a faster, more guided way to explore the same workflows).
+
+## Success looks like this
+
+After running this demo, you should be able to see and explain:
+
+- **Hyperscale**: Broad semantic similarity across a large dataset, with no structured filtering.
+- **Composite**: More precise results by combining semantic similarity with structured filters like sender, case ID, or product.
+- **Hybrid (FTS)**: The ability to mix semantic search with search engine features such as keywords, text, and geospatial constraints.
+
+If you can clearly describe *why* a given query uses one index type over the others, the demo is working as intended.
 
 # Three Types of Vector Search indexes
 
@@ -14,29 +38,31 @@ This type of index is best for large data sets where you don't plan to do any fi
 
 Example use cases:
 
-- *Knowledge base*: A collection of *car owner's manuals: What are the most commons causes of muffler failure in vehicles?
-- *Coding copilot*: examine all code repositories with a similar purpose to help generate a function
-- *Research/writing*: examine all books for a related topic to generate a paragraph
+- **Knowledge base**: A collection of car owner's manuals: What are the most common causes of muffler failure in vehicles?
+- **Coding copilot**: examine all code repositories with a similar purpose to help generate a function
+- **Research/writing**: examine all books for a related topic to generate a paragraph
 
 ## Composite
 
 A hyperscale vector search (k-NN over all vectors) finds semantically similar documents but cannot efficiently restrict the search by structured attributes (for example, author or recipient of an email). A composite vector query lets you apply standard filters (e.g., `sender == X`) and then run a k-NN search only within that filtered subset, reducing noise and improving both accuracy and performance.
 
 Example use cases
-- *Email content* What organizations do emails from jim.smith@gmail.com mention the most?
-- *Legal eDiscovery*: Restrict by case_id then run vector search to find semantically relevant clauses or communications.
-- *Customer Support Triage*: Filter by product and retrieve semantically similar past tickets/solutions.
-- *Medical Records Retrieval*: Limit by patient_id and perform semantic retrieval over clinical notes.
+- **Email content** What organizations do emails from `jim.smith@gmail.com` mention the most?
+- **Legal eDiscovery**: Restrict by `case_id` then run vector search to find semantically relevant clauses or communications.
+- **Customer Support Triage**: Filter by product and retrieve semantically similar past tickets/solutions.
+- **Medical Records Retrieval**: Limit by `patient_id` and perform semantic retrieval over clinical notes.
 
 ## Hybrid (FTS)
 
 A hybrid vector search can use semantic vector search together with FTS features (for example, geospatial or traditional text).
 
 Example use cases:
-- *Business search* What businesses within 5 miles of a certain location might help me with weight loss?
-- TODO more
+- **Business search**: What businesses within 5 miles of a certain location might help me with weight loss? (geospatial + vector)
+- **Job search**: Find software jobs mentioning `C#` and `cloud`, ranked by semantic similarity to `backend API development`, posted in the last 30 days. (keyword + vector + range)
+- **Content moderation**: Locate social posts mentioning a specific event or location, ranked by semantic similarity to harassment or threats. (keyword + vector)
+- **News analysis**: List articles mentioning `interest rates` or `inflation`, ranked by similarity to recession risk narratives. (keyword + vector)
 
-# Step 0: Prerequesites
+# Step 0: Prerequisites
 
 Make sure you've got Python running. You'll probably want to create a virtual environment first, like this:
 
@@ -50,7 +76,7 @@ Then go into that venv with this command:
 source venv/bin/activate
 ```
 
-Then install requirments:
+Then install requirements:
 
 ```bash
 python -m pip install -r requirements.txt
@@ -150,7 +176,7 @@ ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail[0],"DOT")
 LIMIT 5;
 ```
 
-The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semanticall similar. Not a very useful query, but it helps us to verify the index is working.
+The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semantically similar. Not a very useful query, but it helps us to verify the index is working.
 
 ## [Hyperscale Vector Index](https://docs.couchbase.com/cloud/vector-index/hyperscale-vector-index.html)
 
@@ -187,7 +213,7 @@ ORDER BY approx_distance
 LIMIT 5;
 ```
 
-## [Hybrid (FTS) Vector Index]()
+## [Hybrid (FTS) Vector Index](https://docs.couchbase.com/cloud/vector-search/vector-search.html)
 
 Import "hybridIndex.json" into a Capella Search index. Note that the number of dimensions must match the model you're using (384 for local sentence transformers, 1536 for OpenAI, etc).
 
@@ -365,6 +391,18 @@ This will give you options to run the same scripts from a single web app.
 
 ![Loading data](/images/screenshotRag.png "Performing RAG")
 
+# Troubleshooting
+
+Some things to check if you run into issues:
+
+- **No results returned**: Verify data exists in the bucket/scope/collection and that filters (sender, radius, etc.) aren’t too restrictive.
+- **Vector index errors**: Make sure the index is online and the `dimension` matches the embedding model.
+- **Dimension mismatch**: If you changed embedding models, re-load the data and recreate the index.
+- **Hybrid queries not working**: Confirm the FTS index exists and try increasing or removing the geo filter to validate data.
+- **Composite filters not applying**: Check that filter fields are present, indexed, and have the expected data types.
+- **Poor RAG answers**: Increase `LIMIT`, confirm the same embedding model is used for data and prompts, and inspect the retrieved context.
+
+If in doubt, run a simple non-vector query first to confirm the data looks right.
 
 # What's next?
 
