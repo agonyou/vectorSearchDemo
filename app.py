@@ -1,10 +1,13 @@
-from flask import Flask, render_template, request, Response
+import sys
+import platform
 import subprocess
 import shlex
 from pathlib import Path
+from flask import Flask, render_template, request, Response
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
+IS_WINDOWS = platform.system() == "Windows"
 
 
 @app.route("/")
@@ -19,19 +22,29 @@ def run_cmd():
         return Response("No command provided\n", mimetype="text/plain")
 
     def generate():
+        process = None
         try:
-            args = ["stdbuf", "-oL"] + shlex.split(cmd)
+            cmd_args = shlex.split(cmd)
+
+            # 🔑 CRITICAL FIX:
+            # If user typed "python ...", force the venv interpreter
+            if cmd_args and cmd_args[0].lower() == "python":
+                cmd_args[0] = sys.executable
+
+            # Linux-only: force line buffering
+            if not IS_WINDOWS:
+                cmd_args = ["stdbuf", "-oL"] + cmd_args
+
+            yield f"$ {cmd}\n\n"
 
             process = subprocess.Popen(
-                args,
+                cmd_args,
                 cwd=BASE_DIR,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1
             )
-
-            yield f"$ {cmd}\n\n"
 
             for line in process.stdout:
                 yield line
@@ -41,7 +54,8 @@ def run_cmd():
 
         except GeneratorExit:
             # client disconnected
-            process.kill()
+            if process:
+                process.kill()
             raise
         except Exception as e:
             yield f"\nERROR: {e}\n"
