@@ -15,7 +15,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -36,6 +36,28 @@ def get_env(name: str, default: str | None = None, required: bool = False) -> st
         LOG.error("Required environment variable %s is not set", name)
         sys.exit(1)
     return val
+
+
+# ------------------------------------------------------------
+# OpenAI Client (OpenAI-compatible)
+# ------------------------------------------------------------
+
+_openai_client = None
+
+
+def get_openai_client() -> OpenAI:
+    global _openai_client
+
+    if _openai_client is None:
+        _openai_client = OpenAI(
+            api_key=get_env("OPENAI_API_KEY", required=True),
+            base_url=get_env(
+                "OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
+            ),
+        )
+
+    return _openai_client
 
 
 # ------------------------------------------------------------
@@ -66,7 +88,6 @@ def load_config_from_args(args) -> RAGConfig:
 # Embeddings
 # ------------------------------------------------------------
 
-_openai_client = None
 _st_model = None
 
 
@@ -74,9 +95,9 @@ def compute_embedding(text: str) -> List[float]:
     """
     Compute an embedding using:
     1) SentenceTransformer (if configured)
-    2) OpenAI fallback
+    2) OpenAI-compatible API fallback
     """
-    global _st_model, _openai_client
+    global _st_model
 
     st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
 
@@ -91,14 +112,10 @@ def compute_embedding(text: str) -> List[float]:
         except Exception as e:
             LOG.warning("SentenceTransformer failed, falling back to OpenAI: %s", e)
 
-    api_key = get_env("OPENAI_API_KEY", required=True)
-
-    if _openai_client is None:
-        _openai_client = OpenAI(api_key=api_key)
-
+    client = get_openai_client()
     model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
-    resp = _openai_client.embeddings.create(
+    resp = client.embeddings.create(
         model=model,
         input=text,
     )
@@ -111,9 +128,7 @@ def compute_embedding(text: str) -> List[float]:
 # ------------------------------------------------------------
 
 def generate_with_llm(prompt: str, context: str) -> str:
-    api_key = get_env("OPENAI_API_KEY", required=True)
-    client = OpenAI(api_key=api_key)
-
+    client = get_openai_client()
     model = get_env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
     messages = [
@@ -201,15 +216,9 @@ def parse_args():
 
 
 def resolve_inputs(args):
-    any_cli_inputs = any([args.prompt])
-
-    if any_cli_inputs:
-        if not args.prompt:
-            LOG.error("When using CLI mode, --prompt is required")
-            sys.exit(1)
+    if args.prompt:
         return args.prompt
 
-    # Interactive user inputs
     prompt = input("\nEnter your prompt:\n> ").strip()
 
     if not prompt:

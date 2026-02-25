@@ -19,7 +19,7 @@ from couchbase.cluster import Cluster
 from couchbase.options import ClusterOptions
 from couchbase.auth import PasswordAuthenticator
 
-from couchbase.search import SearchRequest, SearchOptions, GeoDistanceQuery
+from couchbase.search import SearchRequest, GeoDistanceQuery
 from couchbase.vector_search import VectorQuery, VectorSearch
 from couchbase.exceptions import DocumentNotFoundException
 
@@ -39,6 +39,28 @@ def get_env(name: str, default: str | None = None, required: bool = False) -> st
         LOG.error("Required environment variable %s is not set", name)
         sys.exit(1)
     return val
+
+
+# ------------------------------------------------------------
+# OpenAI Client (OpenAI-compatible)
+# ------------------------------------------------------------
+
+_openai_client = None
+
+
+def get_openai_client() -> OpenAI:
+    global _openai_client
+
+    if _openai_client is None:
+        _openai_client = OpenAI(
+            api_key=get_env("OPENAI_API_KEY", required=True),
+            base_url=get_env(
+                "OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
+            ),
+        )
+
+    return _openai_client
 
 
 # ------------------------------------------------------------
@@ -79,32 +101,29 @@ def load_config_from_args(args, inputs) -> RAGConfig:
 # Embeddings
 # ------------------------------------------------------------
 
-_openai_client = None
 _st_model = None
 
 
 def compute_embedding(text: str) -> List[float]:
-    global _st_model, _openai_client
+    global _st_model
 
     st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
 
     if st_model_name:
         try:
             if _st_model is None:
+                LOG.info("Loading SentenceTransformer: %s", st_model_name)
                 from sentence_transformers import SentenceTransformer
                 _st_model = SentenceTransformer(st_model_name)
+
             return _st_model.encode(text).tolist()
         except Exception as e:
-            LOG.warning("SentenceTransformer failed, falling back: %s", e)
+            LOG.warning("SentenceTransformer failed, falling back to OpenAI: %s", e)
 
-    api_key = get_env("OPENAI_API_KEY", required=True)
-
-    if _openai_client is None:
-        _openai_client = OpenAI(api_key=api_key)
-
+    client = get_openai_client()
     model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
-    resp = _openai_client.embeddings.create(
+    resp = client.embeddings.create(
         model=model,
         input=text,
     )
@@ -117,9 +136,7 @@ def compute_embedding(text: str) -> List[float]:
 # ------------------------------------------------------------
 
 def generate_with_llm(prompt: str, context: str) -> str:
-    api_key = get_env("OPENAI_API_KEY", required=True)
-    client = OpenAI(api_key=api_key)
-
+    client = get_openai_client()
     model = get_env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
     resp = client.chat.completions.create(
@@ -148,10 +165,6 @@ def generate_with_llm(prompt: str, context: str) -> str:
 # ------------------------------------------------------------
 
 def get_cluster():
-    from couchbase.cluster import Cluster
-    from couchbase.options import ClusterOptions
-    from couchbase.auth import PasswordAuthenticator
-
     return Cluster(
         get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1"),
         ClusterOptions(
@@ -163,65 +176,53 @@ def get_cluster():
     )
 
 
-def run_hybrid_query(cluster, cfg: RAGConfig, query_embedding: List[float]) -> List[str]:
+def run_hybrid_query(cluster, cfg: RAGConfig, query_embedding: List[float]):
     scope = cluster.bucket(cfg.bucket).scope(cfg.scope)
-    collection = scope.collection(cfg.collection) 
-
-    #cfg.latitude, cgf.longitude, cfg.radius
+    collection = scope.collection(cfg.collection)
 
     geo_filter = GeoDistanceQuery(
         location=(cfg.longitude, cfg.latitude),  # (lon, lat)
         distance=cfg.radius,
-        field="location"
+        field="location",
     )
 
     vector_query = VectorQuery.create(
-        field_name="embedding",
+        field_name=cfg.embedding_field,
         vector=query_embedding,
         num_candidates=cfg.limit,
-        prefilter=geo_filter
+        prefilter=geo_filter,
     )
 
     vector_search = VectorSearch.from_vector_query(vector_query)
-
     request = SearchRequest.create(vector_search)
 
-    search_result = scope.search(
-        cfg.index_name,
-        request
-    )
+    search_result = scope.search(cfg.index_name, request)
 
-    # ---- collect FTS hits ----
-    hits = []
-
-    for hit in search_result.rows():
-        hits.append({
-            "id": hit.id,
-            "score": hit.score
-        })
+    hits = [{"id": hit.id, "score": hit.score} for hit in search_result.rows()]
 
     if not hits:
         return []
 
-    # ---- KV fetch (one-by-one, SDK-correct) ----
     enriched = []
 
     for h in hits:
-        doc_id = h["id"]
         try:
-            res = collection.get(doc_id)
+            res = collection.get(h["id"])
             doc = res.content_as[dict]
         except DocumentNotFoundException:
             continue
 
-        enriched.append({
-            "id": doc_id,
-            "score": h["score"],
-            "name": doc.get("name"),
-            "contents": doc.get("contents")
-        })
+        enriched.append(
+            {
+                "id": h["id"],
+                "score": h["score"],
+                "name": doc.get("name"),
+                "contents": doc.get(cfg.content_field),
+            }
+        )
 
     return enriched
+
 
 # ------------------------------------------------------------
 # CLI / Input Handling
@@ -247,7 +248,7 @@ def parse_args():
 
 def resolve_inputs(args):
     if args.prompt:
-        missing = [x for x in ("latitude", "longitude", "radius_miles") if getattr(args, x) is None]
+        missing = [x for x in ("latitude", "longitude", "radius") if getattr(args, x) is None]
         if missing:
             LOG.error("When using CLI mode, --latitude, --longitude, and --radius are required")
             sys.exit(1)
@@ -256,7 +257,7 @@ def resolve_inputs(args):
             "prompt": args.prompt,
             "latitude": args.latitude,
             "longitude": args.longitude,
-            "radius": args.radius_miles,
+            "radius": args.radius,
         }
 
     prompt = input("\nEnter your prompt:\n> ").strip()
@@ -299,14 +300,11 @@ def main():
         print("\nNo matching context found.")
         return
 
-    # ---- convert structured chunks to prompt-ready text ----
     formatted_chunks = []
     for c in chunks:
-        name = c.get("name", "Unknown")
-        contents = c.get("contents", "")
-        if contents:
+        if c.get("contents"):
             formatted_chunks.append(
-                f"Name: {name}\n\n{contents}"
+                f"Name: {c.get('name', 'Unknown')}\n\n{c['contents']}"
             )
 
     if not formatted_chunks:
