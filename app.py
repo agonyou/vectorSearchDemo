@@ -26,7 +26,6 @@ def run_cmd():
         try:
             cmd_args = shlex.split(cmd)
 
-            # 🔑 CRITICAL FIX:
             # If user typed "python ...", force the venv interpreter
             if cmd_args and cmd_args[0].lower() == "python":
                 cmd_args[0] = sys.executable
