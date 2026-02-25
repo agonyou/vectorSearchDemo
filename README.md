@@ -169,7 +169,6 @@ Important notes:
 
 * `DOT` similarity is used because it's good for comparing text content.
 * Make sure the number of dimensions matches your .env setting.
-* In this case, `sender` and `receivers` are an object and array respectively. This may not be optimal for production index/query.
 
 Test the index with a query like:
 
