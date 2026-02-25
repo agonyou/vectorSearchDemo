@@ -1,4 +1,4 @@
-# Email Demo — Couchbase Vector Query Options in action
+# Vector Search Indexes - Couchbase Vector Query Options in action
 
 This demo shows three different ways to run vector search in Couchbase—**Hyperscale**, **Composite**, and **Hybrid (FTS)**, using real datasets and the same end-to-end flow. You’ll load data, generate embeddings, create the appropriate index, and run a RAG-style query to see how each approach affects relevance, filtering, and query flexibility. Each section uses a different dataset to highlight when one vector search option is a better fit than the others.
 
