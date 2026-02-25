@@ -385,7 +385,7 @@ If you prefer a more "out of the box" or UI experience, you can also run a web a
 python app.py
 ```
 
-This will give you options to run the same scripts from a single web app.
+This will give you options to run the same scripts (both data-loading and RAG) from a single web app.
 
 ![Loading data](/images/screenshotLoad.png "Loading dataset")
 
