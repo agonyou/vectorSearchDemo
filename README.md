@@ -184,7 +184,7 @@ ORDER BY APPROX_VECTOR_DISTANCE(e.embedding,anEmail[0],"DOT")
 LIMIT 5;
 ```
 
-The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any timestamp from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semantically similar. Not a very useful query, but it helps us to verify the index is working.
+The `WITH` clause here spares us from having to copy/paste a long vector into a sample query. Pick any document key from the data that has been loaded. The result of this query will almost certainly be the email with that timestamp, because it's the most semantically similar. Not a very useful query, but it helps us to verify the index is working.
 
 ## [Hyperscale Vector Index](https://docs.couchbase.com/cloud/vector-index/hyperscale-vector-index.html)
 
@@ -238,7 +238,7 @@ This is the form of query that will be used for RAG+Composite Query. Note the pr
 
 ```SQL
 SELECT RAW e.contents
-FROM `email`.`_default`.`_default` e
+FROM `vectorSearchDemo`.`_default`.`emails` e
 WHERE e.sender == $sender
 AND e.receiver == $receiver
 ORDER BY APPROX_VECTOR_DISTANCE(e.embedding, <vector of prompt goes here>, "COSINE")
@@ -280,7 +280,9 @@ vector_query = VectorQuery.create(
 vector_search = VectorSearch.from_vector_query(vector_query)
 ```
 
-This query will ultimately return the best matching documents by ID, along with a score. You can embed content fields in the index, but another common pattern that is often used is to perform KV lookups with the resulting IDs. The content gathered in this way will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
+This query will ultimately return the best matching documents by ID, along with a score. You can embed content fields in the index, but another common pattern that is often used is to perform KV lookups with the resulting IDs.
+
+The content gathered by these queries will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
 
 ## Composite
 
