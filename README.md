@@ -67,13 +67,22 @@ Example use cases:
 Make sure you've got Python running. You'll probably want to create a virtual environment first, like this:
 
 ```bash
+# Linux
 python3 -m venv venv
+
+# Windows
+python -m venv venv
 ```
 
 Then go into that venv with this command:
 
 ```bash
+# Linux
 source venv/bin/activate
+
+# Windows
+# you may need `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first
+.\venv\Scripts\Activate.ps1
 ```
 
 Then install requirements:
