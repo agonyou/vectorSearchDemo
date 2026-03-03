@@ -74,13 +74,15 @@ python3 -m venv venv
 python -m venv venv
 ```
 
+NOTE: Creating a venv is a one-time operation.
+
 Then go into that venv with this command:
 
 ```bash
 # Linux
 source venv/bin/activate
 
-# Windows
+# Windows PowerShell
 # you may need `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first
 .\venv\Scripts\Activate.ps1
 ```
