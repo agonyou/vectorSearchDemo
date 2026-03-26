@@ -1,6 +1,6 @@
 {
   "type": "fulltext-index",
-  "name": "vectorSearchDemo._default.ix-yelp-business-vector",
+  "name": "ix-yelp-business-vector",
   "uuid": "425d86f4706da3b7",
   "sourceType": "gocbcore",
   "sourceName": "vectorSearchDemo",

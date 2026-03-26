@@ -163,7 +163,7 @@ Once the data is loaded, create index(es).
 
 ```SQL
 CREATE INDEX `idx_comp_vector_email`
-ON `emails`(`embedding` VECTOR,`sender`,`receivers`)
+ON `emails`(`embedding` VECTOR,`sender`,`receiver`)
 WITH {  "dimension":384, "similarity":"DOT", "description":"IVF,SQ8" }
 ```
 

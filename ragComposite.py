@@ -201,7 +201,7 @@ def run_composite_query(
     SELECT RAW e.{cfg.content_field}
     FROM `{cfg.bucket}`.`{cfg.scope}`.`{cfg.collection}` e
     {where_sql}
-    ORDER BY APPROX_VECTOR_DISTANCE(e.{cfg.embedding_field}, $vector, "COSINE")
+    ORDER BY APPROX_VECTOR_DISTANCE(e.{cfg.embedding_field}, $vector, "DOT")
     LIMIT $limit
     """
 
