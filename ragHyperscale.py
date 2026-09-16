@@ -26,6 +26,12 @@ from openai import OpenAI
 
 load_dotenv()
 
+# Embedding model is cached on disk; force HF offline so sentence-transformers doesn't
+# revalidate the cache over the network on every run (the HEAD storm → HTTP 429 backoffs).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
 LOG = logging.getLogger("rag")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
