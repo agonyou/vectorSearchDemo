@@ -96,9 +96,10 @@ def load_config_from_args(args) -> RAGConfig:
 
 _st_model = None
 
-# CLI override for the embedding provider ("local" or "openai"). None → infer from .env
-# (SENTENCE_TRANSFORMER_MODEL set means local). Set from --embedding-provider in main().
+# CLI overrides for the embedding provider ("local"/"openai") and model name. None → infer from
+# .env. Set from --embedding-provider / --embedding-model in main().
 _provider_override = None
+_model_override = None
 
 
 def resolve_provider() -> str:
@@ -110,8 +111,14 @@ def resolve_provider() -> str:
 
 
 def st_model_name() -> str:
-    """Local model name — SENTENCE_TRANSFORMER_MODEL if set, else the documented 384-dim default."""
-    return get_env("SENTENCE_TRANSFORMER_MODEL") or "all-MiniLM-L6-v2"
+    """Local model name — --embedding-model if given, else SENTENCE_TRANSFORMER_MODEL, else the
+    documented 384-dim default."""
+    return _model_override or get_env("SENTENCE_TRANSFORMER_MODEL") or "all-MiniLM-L6-v2"
+
+
+def openai_embedding_model() -> str:
+    """OpenAI embedding model — --embedding-model if given, else OPENAI_EMBEDDING_MODEL, else default."""
+    return _model_override or get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
 
 def compute_embedding(text: str) -> List[float]:
@@ -135,7 +142,7 @@ def compute_embedding(text: str) -> List[float]:
             LOG.warning("SentenceTransformer failed, falling back to OpenAI: %s", e)
 
     client = get_openai_client()
-    model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    model = openai_embedding_model()
 
     resp = client.embeddings.create(
         model=model,
@@ -281,6 +288,12 @@ def parse_args():
              "(SENTENCE_TRANSFORMER_MODEL set → local, else openai). Must match the "
              "collection's index dimensions (local/MiniLM=384, openai=1536).",
     )
+    parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="Override the embedding model name for the chosen provider (local sentence-transformers "
+             "model or OpenAI embedding model). Its output dimension must match the collection's index.",
+    )
 
     return parser.parse_args()
 
@@ -315,8 +328,9 @@ def main():
 
     args = parse_args()
 
-    global _provider_override
+    global _provider_override, _model_override
     _provider_override = args.embedding_provider
+    _model_override = args.embedding_model
 
     prompt, sender, receiver = resolve_inputs(args)
 

@@ -40,18 +40,94 @@ async function runCommand(cmdInputId, outputId) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Global embedding controls (provider + model) — drive every load/RAG command.
+// ---------------------------------------------------------------------------
+
+function embeddingProvider() {
+    const el = document.getElementById('globalProvider');
+    return el ? el.value : 'local';
+}
+
+function embeddingModel() {
+    const el = document.getElementById('globalModel');
+    return el ? el.value.trim() : '';
+}
+
+// Map a base (local) collection name to the collection for the selected provider.
+// OpenAI (1536-dim) data lives in a parallel "<base>_openai" collection.
+function collectionFor(base) {
+    return embeddingProvider() === 'openai' ? `${base}_openai` : base;
+}
+
+// Append --embedding-provider and (when set) --embedding-model to a command.
+function withEmbeddingFlags(cmd) {
+    cmd += ` --embedding-provider ${embeddingProvider()}`;
+    const model = embeddingModel();
+    if (model) {
+        cmd += ` --embedding-model "${model}"`;
+    }
+    return cmd;
+}
+
+// Update the model placeholder to the provider's default when the provider changes.
+function onProviderChange() {
+    const el = document.getElementById('globalModel');
+    if (el) {
+        el.placeholder = embeddingProvider() === 'openai'
+            ? 'text-embedding-3-small (default)'
+            : 'all-MiniLM-L6-v2 (default)';
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Load builders
+// ---------------------------------------------------------------------------
+
+function setLoadCmdComposite() {
+    const collection = collectionFor('emails');
+    const cmd = `python load.py ` +
+                `--data data/dataset.csv --text-fields subject message_body ` +
+                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--copy-fields subject sender receiver message_body ` +
+                `--limit 5 --id-field sender timestamp`;
+    setLoadCmd(withEmbeddingFlags(cmd));
+}
+
+function setLoadCmdHyperscale() {
+    const collection = collectionFor('movies');
+    const cmd = `python load.py ` +
+                `--data data/wiki_movie_plots_deduped.csv --text-fields Plot ` +
+                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--copy-fields Title "Release Year" Director ` +
+                `--limit 5 --id-field Title "Release Year"`;
+    setLoadCmd(withEmbeddingFlags(cmd));
+}
+
+function setLoadCmdHybrid() {
+    const collection = collectionFor('yelp');
+    const cmd = `python load.py ` +
+                `--data data/yelp_academic_dataset_business.json --text-fields categories ` +
+                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--copy-fields latitude longitude name ` +
+                `--limit 5 --id-field business_id`;
+    setLoadCmd(withEmbeddingFlags(cmd));
+}
+
+// ---------------------------------------------------------------------------
+// RAG builders
+// ---------------------------------------------------------------------------
+
 function setRagCmdComposite() {
     const sender = document.getElementById('sender').value.trim();
     const receiver = document.getElementById('receiver').value.trim();
     const prompt = document.getElementById('prompt').value.trim();
 
-    const bucket = 'vectorSearchDemo';
-    const scope = '_default';
-    const collection = 'emails';
+    const collection = collectionFor('emails');
 
     let cmd = `python ragComposite.py ` +
-              `--bucket ${bucket} ` +
-              `--scope ${scope} ` +
+              `--bucket vectorSearchDemo ` +
+              `--scope _default ` +
               `--collection ${collection}`;
 
     if (sender) {
@@ -66,64 +142,42 @@ function setRagCmdComposite() {
         cmd += ` --prompt "${prompt}"`;
     }
 
-    setRagCmd(cmd);
+    setRagCmd(withEmbeddingFlags(cmd));
 }
 
 function setRagCmdHyperscale() {
     const prompt = document.getElementById('hyperPrompt').value.trim();
 
-    const bucket = 'vectorSearchDemo';
-    const scope = '_default';
-    const collection = 'movies';
+    const collection = collectionFor('movies');
 
     let cmd = `python ragHyperscale.py ` +
-              `--bucket ${bucket} ` +
-              `--scope ${scope} ` +
+              `--bucket vectorSearchDemo ` +
+              `--scope _default ` +
               `--collection ${collection}`;
 
-    cmd += ` --prompt "${prompt}"`;
+    if (prompt) {
+        cmd += ` --prompt "${prompt}"`;
+    }
 
-    setRagCmd(cmd);
-}
-
-// Hybrid load: provider picks the collection so the vectors match the collection's index dimension.
-// Only the yelp dataset has both a 384 (yelp) and a 1536 (yelp_openai) collection in this cluster.
-function setLoadCmdHybrid() {
-    const provider = document.getElementById('hybridLoadProvider').value;
-    const collection = provider === 'openai' ? 'yelp_openai' : 'yelp';
-
-    const cmd = `python load.py ` +
-                `--data data/yelp_academic_dataset_business.json ` +
-                `--text-fields categories ` +
-                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
-                `--copy-fields latitude longitude name ` +
-                `--limit 5 --id-field business_id ` +
-                `--embedding-provider ${provider}`;
-
-    setLoadCmd(cmd);
+    setRagCmd(withEmbeddingFlags(cmd));
 }
 
 function setRagCmdHybrid() {
     const prompt = document.getElementById('hybridPrompt').value.trim();
 
-    const bucket = 'vectorSearchDemo';
-    const scope = '_default';
-
-    // Provider selector swaps collection + FTS index together so the 384/1536 dimensions agree.
-    const provider = document.getElementById('hybridProvider').value;
-    const collection = provider === 'openai' ? 'yelp_openai' : 'yelp';
-    const indexName = provider === 'openai' ? 'ix-yelp-openai-vector' : 'ix-yelp-business-vector';
+    const collection = collectionFor('yelp');
+    // The FTS index is dimension-specific, so it swaps with the provider too.
+    const indexName = embeddingProvider() === 'openai' ? 'ix-yelp-openai-vector' : 'ix-yelp-business-vector';
 
     const latitude = document.getElementById('hybridLatitude').value.trim();
     const longitude = document.getElementById('hybridLongitude').value.trim();
     const radius = document.getElementById('hybridRadius').value.trim();
 
     let cmd = `python ragHybrid.py ` +
-              `--bucket ${bucket} ` +
-              `--scope ${scope} ` +
+              `--bucket vectorSearchDemo ` +
+              `--scope _default ` +
               `--collection ${collection} ` +
-              `--index-name ${indexName} ` +
-              `--embedding-provider ${provider}`;
+              `--index-name ${indexName}`;
 
     if (prompt) {
         cmd += ` --prompt "${prompt}"`;
@@ -133,5 +187,5 @@ function setRagCmdHybrid() {
         cmd += ` --latitude ${latitude} --longitude ${longitude} --radius ${radius}`;
     }
 
-    setRagCmd(cmd);
+    setRagCmd(withEmbeddingFlags(cmd));
 }

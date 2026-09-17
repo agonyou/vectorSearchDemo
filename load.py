@@ -106,9 +106,10 @@ def maybe_add_location(doc: dict, row: dict) -> None:
 _ST_MODEL = None       # cache the SentenceTransformer across calls — load it ONCE, not per document
 _OPENAI_CLIENT = None  # cache the OpenAI client too
 
-# CLI override for the embedding provider ("local" or "openai"). None → infer from .env
-# (SENTENCE_TRANSFORMER_MODEL set means local). Set from --embedding-provider in main().
+# CLI overrides for the embedding provider ("local"/"openai") and model name. None → infer from
+# .env. Set from --embedding-provider / --embedding-model in main().
 _PROVIDER_OVERRIDE = None
+_MODEL_OVERRIDE = None
 
 
 def resolve_provider() -> str:
@@ -120,8 +121,14 @@ def resolve_provider() -> str:
 
 
 def st_model_name() -> str:
-    """Local model name — SENTENCE_TRANSFORMER_MODEL if set, else the documented 384-dim default."""
-    return get_env("SENTENCE_TRANSFORMER_MODEL") or "all-MiniLM-L6-v2"
+    """Local model name — --embedding-model if given, else SENTENCE_TRANSFORMER_MODEL, else the
+    documented 384-dim default."""
+    return _MODEL_OVERRIDE or get_env("SENTENCE_TRANSFORMER_MODEL") or "all-MiniLM-L6-v2"
+
+
+def openai_embedding_model() -> str:
+    """OpenAI embedding model — --embedding-model if given, else OPENAI_EMBEDDING_MODEL, else default."""
+    return _MODEL_OVERRIDE or get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
 
 def _get_st_model(name: str):
@@ -169,7 +176,7 @@ def compute_embeddings(texts: List[str]) -> List[List[float]]:
         raise RuntimeError("No embedding provider configured")
 
     client = _get_openai_client()
-    model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    model = openai_embedding_model()
     resp = client.embeddings.create(model=model, input=texts)
     # Return in input order (OpenAI echoes an `index` on each item).
     return [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
@@ -349,6 +356,12 @@ def main() -> None:
              "(SENTENCE_TRANSFORMER_MODEL set → local, else openai). The dimension it "
              "produces (local/MiniLM=384, openai=1536) must match the target collection's index.",
     )
+    parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="Override the embedding model name for the chosen provider (local sentence-transformers "
+             "model or OpenAI embedding model). Its output dimension must match the target index.",
+    )
 
     # Throughput controls
     parser.add_argument(
@@ -368,8 +381,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    global _PROVIDER_OVERRIDE
+    global _PROVIDER_OVERRIDE, _MODEL_OVERRIDE
     _PROVIDER_OVERRIDE = args.embedding_provider
+    _MODEL_OVERRIDE = args.embedding_model
 
     rows = load_rows(args.data)
     collection = get_collection(args.bucket, args.scope, args.collection)

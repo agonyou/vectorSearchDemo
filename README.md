@@ -120,7 +120,11 @@ python load.py ... --collection yelp        --embedding-provider local
 python load.py ... --collection yelp_openai --embedding-provider openai
 ```
 
-> **Dimensions must agree.** The provider you load with, the vector index's `dimension`, and the provider you query with must all match (local = 384, OpenAI = 1536). A mismatch returns an empty result ("No matching context found") with no error. When you override the provider, point the command at a collection/index built for that dimension.
+You can also override the model name itself with `--embedding-model <name>` (the local sentence-transformers model or the OpenAI embedding model). Its output dimension must still match the target index.
+
+> **Dimensions must agree.** The provider you load with, the vector index's `dimension`, and the provider you query with must all match (local = 384, OpenAI = 1536). A mismatch returns an empty result ("No matching context found") with no error. When you override the provider, point the command at a collection/index built for that dimension. As a safety net, the scripts run a startup preflight that fails fast if the embedding dimension disagrees with `VECTOR_DIMENSIONS` in `.env`.
+
+In the web UI (`app.py`), a single **Embedding provider / Model** control at the top drives every load and query command: it appends the flags and maps each dataset to its local collection or its `<name>_openai` (1536-dim) collection (and swaps the Hybrid FTS index to match).
 
 When stored in Couchbase as a document with an embedding, documents will look like this:
 

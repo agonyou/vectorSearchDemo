@@ -12,6 +12,20 @@
 <div class="container">
     <h1>Couchbase Vector Search Demo</h1>
 
+    <!-- Global embedding controls: the provider + optional model name drive EVERY load and RAG
+         command below. Each dataset maps to its local collection, or its <name>_openai (1536-dim)
+         collection when OpenAI is selected. The Hybrid FTS index name is swapped to match. -->
+    <div class="embedding-controls">
+        <label for="globalProvider"><strong>Embedding provider:</strong></label>
+        <select id="globalProvider" onchange="onProviderChange()">
+            <option value="local" selected>Local — sentence-transformers (384-dim)</option>
+            <option value="openai">OpenAI (1536-dim)</option>
+        </select>
+        <label for="globalModel">Model:</label>
+        <input type="text" id="globalModel" placeholder="all-MiniLM-L6-v2 (default)" size="30" />
+        <span class="hint">Blank = provider default. The model's dimension must match the collection's index.</span>
+    </div>
+
     <div class="tabs">
         <h3>Load Data</h3>
         <input type="radio" name="tabs" id="tab2" checked="checked">
@@ -29,22 +43,16 @@
         <div class="content">
             <section id="content1">
                 <p>The dataset for Composite vector search is <a href="https://www.kaggle.com/datasets/rtweera/customer-care-emails">Customer Care Emails dataset</a>, a synthetic dataset that includes sender, receive, and message body.</p>
-                <button onclick="setLoadCmd('python load.py --data data/dataset.csv --text-fields subject message_body --bucket vectorSearchDemo --scope _default --collection emails --copy-fields subject sender receiver message_body --limit 5 --id-field sender timestamp')">Load 5 emails</button>
+                <button onclick="setLoadCmdComposite()">Load 5 emails</button>
             </section>
 
             <section id="content2">
                 <p>The dataset for Hyperscale vector search is <a href="https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots">Wikipedia Movie Plots dataset</a>, which includes movie plot and title text fields.</p>
-                <button onclick="setLoadCmd('python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title &quot;Release Year&quot; Director --limit 5 --id-field Title &quot;Release Year&quot;')">Load 5 Movie Plots</button>
+                <button onclick="setLoadCmdHyperscale()">Load 5 Movie Plots</button>
             </section>
 
             <section id="content3">
                 <p>The dataset for Hybrid vector search is <a href="https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset">Businesses from the Yelp Dataset</a>, which includes business name and categories (text) and latitude/longitude (floating point numbers).</p>
-                <!-- Provider selector swaps the target collection (local→yelp/384, openai→yelp_openai/1536)
-                     and appends --embedding-provider so the vectors match the collection's index. -->
-                <select id="hybridLoadProvider">
-                    <option value="local" selected>Local — MiniLM 384-dim (→ yelp)</option>
-                    <option value="openai">OpenAI — 1536-dim (→ yelp_openai)</option>
-                </select>
                 <button onclick="setLoadCmdHybrid()">Load 5 Yelp Businesses</button>
             </section>
 
@@ -92,12 +100,6 @@
                 <input type="text" id="hybridLongitude" placeholder="Longitude" value="-119.711196" />
                 <input type="text" id="hybridRadius" placeholder="Radius" value="5mi" />
                 <input type="text" id="hybridPrompt" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
-                <!-- Provider selector swaps collection + FTS index together (local→yelp/384/ix-yelp-business-vector,
-                     openai→yelp_openai/1536/ix-yelp-openai-vector) and appends --embedding-provider. -->
-                <select id="hybridProvider">
-                    <option value="local" selected>Local — MiniLM 384-dim (yelp)</option>
-                    <option value="openai">OpenAI — 1536-dim (yelp_openai)</option>
-                </select>
                 <button onclick="setRagCmdHybrid()">Query</button>
             </section>
         </div>

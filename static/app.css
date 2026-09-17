@@ -145,3 +145,30 @@ button:hover {
   display: block;
   margin-top: 1rem;
 }
+
+/* ---------- Global embedding controls ---------- */
+.embedding-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+}
+
+.embedding-controls select,
+.embedding-controls input[type="text"] {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.embedding-controls .hint {
+  flex-basis: 100%;
+  color: #475569;
+  font-size: 0.85rem;
+}
