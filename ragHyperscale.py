@@ -26,6 +26,12 @@ from openai import OpenAI
 
 load_dotenv()
 
+# Embedding model is cached on disk; force HF offline so sentence-transformers doesn't
+# revalidate the cache over the network on every run (the HEAD storm → HTTP 429 backoffs).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
 LOG = logging.getLogger("rag")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -90,23 +96,39 @@ def load_config_from_args(args) -> RAGConfig:
 
 _st_model = None
 
+# CLI override for the embedding provider ("local" or "openai"). None → infer from .env
+# (SENTENCE_TRANSFORMER_MODEL set means local). Set from --embedding-provider in main().
+_provider_override = None
+
+
+def resolve_provider() -> str:
+    """Effective embedding provider: the --embedding-provider override if given, else inferred
+    from .env (SENTENCE_TRANSFORMER_MODEL set → 'local', otherwise 'openai')."""
+    if _provider_override:
+        return _provider_override
+    return "local" if get_env("SENTENCE_TRANSFORMER_MODEL") else "openai"
+
+
+def st_model_name() -> str:
+    """Local model name — SENTENCE_TRANSFORMER_MODEL if set, else the documented 384-dim default."""
+    return get_env("SENTENCE_TRANSFORMER_MODEL") or "all-MiniLM-L6-v2"
+
 
 def compute_embedding(text: str) -> List[float]:
     """
-    Compute an embedding using:
-    1) SentenceTransformer (if configured)
-    2) OpenAI-compatible API fallback
+    Compute an embedding using the resolved provider:
+    - "local"  → SentenceTransformer (falls back to OpenAI only on error)
+    - "openai" → OpenAI-compatible API
     """
     global _st_model
 
-    st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
-
-    if st_model_name:
+    if resolve_provider() == "local":
+        name = st_model_name()
         try:
             if _st_model is None:
-                LOG.info("Loading SentenceTransformer: %s", st_model_name)
+                LOG.info("Loading SentenceTransformer: %s", name)
                 from sentence_transformers import SentenceTransformer
-                _st_model = SentenceTransformer(st_model_name)
+                _st_model = SentenceTransformer(name)
 
             return _st_model.encode(text).tolist()
         except Exception as e:
@@ -212,6 +234,16 @@ def parse_args():
     # Optional user-input args
     parser.add_argument("--prompt")
 
+    # Embedding provider override (see #1). Omit to keep the .env-driven default.
+    parser.add_argument(
+        "--embedding-provider",
+        choices=["local", "openai"],
+        default=None,
+        help="Force the embedding provider. Omit to infer from .env "
+             "(SENTENCE_TRANSFORMER_MODEL set → local, else openai). Must match the "
+             "collection's index dimensions (local/MiniLM=384, openai=1536).",
+    )
+
     return parser.parse_args()
 
 
@@ -236,6 +268,10 @@ def main():
     print("\n=== Couchbase Hyperscale Vector RAG Demo ===\n")
 
     args = parse_args()
+
+    global _provider_override
+    _provider_override = args.embedding_provider
+
     prompt = resolve_inputs(args)
 
     cfg = load_config_from_args(args)

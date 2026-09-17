@@ -34,12 +34,18 @@
 
             <section id="content2">
                 <p>The dataset for Hyperscale vector search is <a href="https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots">Wikipedia Movie Plots dataset</a>, which includes movie plot and title text fields.</p>
-                <button onclick="setLoadCmd('python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title ReleaseYear Director --limit 5 --id-field Title ReleaseYear')">Load 5 Movie Plots</button>
+                <button onclick="setLoadCmd('python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title &quot;Release Year&quot; Director --limit 5 --id-field Title &quot;Release Year&quot;')">Load 5 Movie Plots</button>
             </section>
 
             <section id="content3">
                 <p>The dataset for Hybrid vector search is <a href="https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset">Businesses from the Yelp Dataset</a>, which includes business name and categories (text) and latitude/longitude (floating point numbers).</p>
-                <button onclick="setLoadCmd('python load.py --data data/yelp_academic_dataset_business.json --text-fields categories --bucket vectorSearchDemo --scope _default --collection yelp --copy-fields latitude longitude name --limit 5 --id-field business_id')">Load 5 Yelp Businesses</button>
+                <!-- Provider selector swaps the target collection (local→yelp/384, openai→yelp_openai/1536)
+                     and appends --embedding-provider so the vectors match the collection's index. -->
+                <select id="hybridLoadProvider">
+                    <option value="local" selected>Local — MiniLM 384-dim (→ yelp)</option>
+                    <option value="openai">OpenAI — 1536-dim (→ yelp_openai)</option>
+                </select>
+                <button onclick="setLoadCmdHybrid()">Load 5 Yelp Businesses</button>
             </section>
 
             <section id="content7">
@@ -86,6 +92,12 @@
                 <input type="text" id="hybridLongitude" placeholder="Longitude" value="-119.711196" />
                 <input type="text" id="hybridRadius" placeholder="Radius" value="5mi" />
                 <input type="text" id="hybridPrompt" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
+                <!-- Provider selector swaps collection + FTS index together (local→yelp/384/ix-yelp-business-vector,
+                     openai→yelp_openai/1536/ix-yelp-openai-vector) and appends --embedding-provider. -->
+                <select id="hybridProvider">
+                    <option value="local" selected>Local — MiniLM 384-dim (yelp)</option>
+                    <option value="openai">OpenAI — 1536-dim (yelp_openai)</option>
+                </select>
                 <button onclick="setRagCmdHybrid()">Query</button>
             </section>
         </div>

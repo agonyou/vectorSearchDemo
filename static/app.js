@@ -86,12 +86,33 @@ function setRagCmdHyperscale() {
     setRagCmd(cmd);
 }
 
+// Hybrid load: provider picks the collection so the vectors match the collection's index dimension.
+// Only the yelp dataset has both a 384 (yelp) and a 1536 (yelp_openai) collection in this cluster.
+function setLoadCmdHybrid() {
+    const provider = document.getElementById('hybridLoadProvider').value;
+    const collection = provider === 'openai' ? 'yelp_openai' : 'yelp';
+
+    const cmd = `python load.py ` +
+                `--data data/yelp_academic_dataset_business.json ` +
+                `--text-fields categories ` +
+                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--copy-fields latitude longitude name ` +
+                `--limit 5 --id-field business_id ` +
+                `--embedding-provider ${provider}`;
+
+    setLoadCmd(cmd);
+}
+
 function setRagCmdHybrid() {
     const prompt = document.getElementById('hybridPrompt').value.trim();
 
     const bucket = 'vectorSearchDemo';
     const scope = '_default';
-    const collection = 'yelp';
+
+    // Provider selector swaps collection + FTS index together so the 384/1536 dimensions agree.
+    const provider = document.getElementById('hybridProvider').value;
+    const collection = provider === 'openai' ? 'yelp_openai' : 'yelp';
+    const indexName = provider === 'openai' ? 'ix-yelp-openai-vector' : 'ix-yelp-business-vector';
 
     const latitude = document.getElementById('hybridLatitude').value.trim();
     const longitude = document.getElementById('hybridLongitude').value.trim();
@@ -100,7 +121,9 @@ function setRagCmdHybrid() {
     let cmd = `python ragHybrid.py ` +
               `--bucket ${bucket} ` +
               `--scope ${scope} ` +
-              `--collection ${collection}`;
+              `--collection ${collection} ` +
+              `--index-name ${indexName} ` +
+              `--embedding-provider ${provider}`;
 
     if (prompt) {
         cmd += ` --prompt "${prompt}"`;

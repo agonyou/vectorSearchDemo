@@ -109,6 +109,19 @@ python load.py --data data.json --id-field id --text-fields contents --bucket my
 
 The `--limit N` parameter means that you want to load the next N documents that haven't been loaded yet.
 
+## Choosing the embedding provider
+
+By default the embedding provider is inferred from `.env`: if `SENTENCE_TRANSFORMER_MODEL` is set, `load.py` and the `rag*.py` scripts use a local sentence-transformers model (e.g. `all-MiniLM-L6-v2`, **384 dimensions**); otherwise they use OpenAI (`text-embedding-3-small`, **1536 dimensions**).
+
+You can override this per-invocation with `--embedding-provider {local,openai}` on `load.py` and all three `rag*.py` scripts — handy for switching between a 384-dim and a 1536-dim collection without editing `.env` mid-demo:
+
+```bash
+python load.py ... --collection yelp        --embedding-provider local
+python load.py ... --collection yelp_openai --embedding-provider openai
+```
+
+> **Dimensions must agree.** The provider you load with, the vector index's `dimension`, and the provider you query with must all match (local = 384, OpenAI = 1536). A mismatch returns an empty result ("No matching context found") with no error. When you override the provider, point the command at a collection/index built for that dimension.
+
 When stored in Couchbase as a document with an embedding, documents will look like this:
 
 ```javascript
@@ -144,10 +157,10 @@ This will vectorize the subject+message body together, and save the sender and r
 **Hyperscale** - load movie plots from the [Wikipedia Movie Plots dataset](https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots): wiki_movie_plots_deduped.csv
 
 ```bash
-python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title ReleaseYear Director --limit 5 --id-field Title ReleaseYear
+python load.py --data data/wiki_movie_plots_deduped.csv --text-fields Plot --bucket vectorSearchDemo --scope _default --collection movies --copy-fields Title "Release Year" Director --limit 5 --id-field Title "Release Year"
 ```
 
-> NOTE: For simplicity, I removed the spaces from CSV header row (i.e. Release Year became ReleaseYear). Since this is a single field being vectorized, I did not include it in `--copy-fields`. Again, your need will vary by use case.
+> NOTE: The CSV header is `Release Year` (with a space), so it must be quoted (`"Release Year"`) or escaped (`Release\ Year`) on the command line — otherwise `--id-field` can't find it and every row is skipped. Since `Plot` is the single field being vectorized, it's the only `--text-fields` value; the others are carried along via `--copy-fields`. Your needs will vary by use case.
 
 **Hybrid** - load businesses from the [Yelp Dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset): yelp_academic_dataset_business.json
 
@@ -214,7 +227,7 @@ WITH aMovie AS (
     WHERE m.Title = "Alice in Wonderland"
     LIMIT 1
 )
-SELECT m.Title, m.ReleaseYear, approx_distance
+SELECT m.Title, m.`Release Year`, approx_distance
 FROM `vectorSearchDemo`.`_default`.`movies` AS m
 LET approx_distance = APPROX_VECTOR_DISTANCE(
     m.embedding, aMovie[0], "COSINE", 3
