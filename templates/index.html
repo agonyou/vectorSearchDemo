@@ -16,13 +16,17 @@
          command below. Each dataset maps to its local collection, or its <name>_openai (1536-dim)
          collection when OpenAI is selected. The Hybrid FTS index name is swapped to match. -->
     <div class="embedding-controls">
-        <label for="globalProvider"><strong>Embedding provider:</strong></label>
-        <select id="globalProvider" onchange="onProviderChange()">
-            <option value="local" selected>Local — sentence-transformers (384-dim)</option>
-            <option value="openai">OpenAI (1536-dim)</option>
-        </select>
-        <label for="globalModel">Model:</label>
-        <input type="text" id="globalModel" placeholder="all-MiniLM-L6-v2 (default)" size="30" />
+        <div class="control-row">
+            <label for="globalProvider"><strong>Embedding provider:</strong></label>
+            <select id="globalProvider" onchange="onProviderChange()">
+                <option value="local" selected>Local — sentence-transformers (384-dim)</option>
+                <option value="openai">OpenAI (1536-dim)</option>
+            </select>
+        </div>
+        <div class="control-row">
+            <label for="globalModel">Model:</label>
+            <input type="text" id="globalModel" placeholder="all-MiniLM-L6-v2 (384-dim)" />
+        </div>
         <span class="hint">Blank = provider default. The model's dimension must match the collection's index.</span>
     </div>
 
@@ -68,6 +72,7 @@
     <input id="loadCmd" type="text" placeholder="Enter command..." />
 
     <button class="run" onclick="runLoad()">Run</button>
+    <span id="preflightLoad" class="preflight-badge"></span>
 
     <textarea id="outputLoad" readonly></textarea>
 
@@ -108,6 +113,7 @@
     <input id="ragCmd" type="text" placeholder="Enter command..." />
 
     <button class="run" onclick="runRag()">Run</button>
+    <span id="preflightRag" class="preflight-badge"></span>
 
 
     <textarea id="outputQuery" readonly></textarea>

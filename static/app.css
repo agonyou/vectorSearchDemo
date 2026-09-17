@@ -149,14 +149,20 @@ button:hover {
 /* ---------- Global embedding controls ---------- */
 .embedding-controls {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
   margin: 0 0 1rem;
   padding: 0.75rem 1rem;
   background: #eef2ff;
   border: 1px solid #c7d2fe;
   border-radius: 6px;
+}
+
+.embedding-controls .control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
 }
 
 .embedding-controls select,
@@ -167,8 +173,28 @@ button:hover {
   font-family: inherit;
 }
 
+/* Override the global full-width input rule so the Model label sits beside its box. */
+.embedding-controls input[type="text"] {
+  width: 18rem;
+  max-width: 100%;
+}
+
 .embedding-controls .hint {
   flex-basis: 100%;
   color: #475569;
   font-size: 0.85rem;
 }
+
+/* ---------- Preflight status badge ---------- */
+.preflight-badge {
+  display: none;
+  margin-left: 0.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.preflight-badge.pass { display: inline-block; background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.preflight-badge.fail { display: inline-block; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.preflight-badge.skip { display: inline-block; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }

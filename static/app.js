@@ -7,19 +7,44 @@ function setRagCmd(value) {
 }
 
 async function runLoad() {
-    return runCommand('loadCmd', 'outputLoad');
+    return runCommand('loadCmd', 'outputLoad', 'preflightLoad');
 }
 
 async function runRag() {
-    return runCommand('ragCmd', 'outputQuery');
+    return runCommand('ragCmd', 'outputQuery', 'preflightRag');
 }
 
-async function runCommand(cmdInputId, outputId) {
+// Watch the streamed output for the scripts' preflight markers (#2) and reflect them
+// on a status badge so the pass/fail is visible without scrolling the output.
+function updatePreflightBadge(badge, text) {
+    if (!badge || badge.dataset.settled === '1') return;
+    if (text.includes('Preflight OK')) {
+        badge.textContent = '✓ Preflight passed';
+        badge.className = 'preflight-badge pass';
+        badge.dataset.settled = '1';
+    } else if (text.includes('Embedding dimension mismatch')) {
+        badge.textContent = '✗ Dimension mismatch';
+        badge.className = 'preflight-badge fail';
+        badge.dataset.settled = '1';
+    } else if (text.includes('Preflight skipped')) {
+        badge.textContent = 'Preflight skipped';
+        badge.className = 'preflight-badge skip';
+        badge.dataset.settled = '1';
+    }
+}
+
+async function runCommand(cmdInputId, outputId, badgeId) {
     const cmd = document.getElementById(cmdInputId).value;
     const output = document.getElementById(outputId);
+    const badge = badgeId ? document.getElementById(badgeId) : null;
 
     output.value = '';
     output.scrollTop = 0;
+    if (badge) {
+        badge.textContent = '';
+        badge.className = 'preflight-badge';
+        badge.dataset.settled = '0';
+    }
 
     const res = await fetch('/run', {
         method: 'POST',
@@ -37,6 +62,7 @@ async function runCommand(cmdInputId, outputId) {
         const chunk = decoder.decode(value, { stream: true });
         output.value += chunk;
         output.scrollTop = output.scrollHeight;
+        updatePreflightBadge(badge, output.value);
     }
 }
 
@@ -75,8 +101,8 @@ function onProviderChange() {
     const el = document.getElementById('globalModel');
     if (el) {
         el.placeholder = embeddingProvider() === 'openai'
-            ? 'text-embedding-3-small (default)'
-            : 'all-MiniLM-L6-v2 (default)';
+            ? 'text-embedding-3-small (1536-dim)'
+            : 'all-MiniLM-L6-v2 (384-dim)';
     }
 }
 

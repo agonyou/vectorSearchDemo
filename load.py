@@ -193,6 +193,7 @@ def preflight_dimensions(actual_dim: int, collection: str) -> None:
     otherwise fails silently at query time with an empty result."""
     declared = get_env("VECTOR_DIMENSIONS")
     if not declared:
+        LOG.info("Preflight skipped: VECTOR_DIMENSIONS not set in .env (nothing to compare against).")
         return
     try:
         declared_dim = int(declared)
@@ -207,6 +208,8 @@ def preflight_dimensions(actual_dim: int, collection: str) -> None:
             resolve_provider(), actual_dim, declared_dim, collection,
         )
         raise SystemExit(1)
+    LOG.info("Preflight OK: %d-dim %s embeddings match VECTOR_DIMENSIONS (collection '%s').",
+             actual_dim, resolve_provider(), collection)
 
 
 # ---------------------------------------------------------------------------
