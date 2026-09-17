@@ -153,6 +153,28 @@ def compute_embedding(text: str) -> List[float]:
     return resp.data[0].embedding
 
 
+def preflight_dimensions(actual_dim: int, collection: str) -> None:
+    """Fail fast when the embedding dimension disagrees with VECTOR_DIMENSIONS (.env).
+    A mismatch (e.g. a 1536-dim query against a 384-dim collection) otherwise returns an
+    empty result with no error — this turns that silent miss into an actionable message."""
+    declared = get_env("VECTOR_DIMENSIONS")
+    if not declared:
+        return
+    try:
+        declared_dim = int(declared)
+    except ValueError:
+        LOG.warning("VECTOR_DIMENSIONS=%r is not an integer; skipping dimension preflight", declared)
+        return
+    if actual_dim != declared_dim:
+        LOG.error(
+            "Embedding dimension mismatch: provider '%s' produced %d-dim vectors but "
+            "VECTOR_DIMENSIONS=%d (querying collection '%s'). The provider, the collection's "
+            "vector index, and VECTOR_DIMENSIONS must all agree (local/MiniLM=384, OpenAI=1536).",
+            resolve_provider(), actual_dim, declared_dim, collection,
+        )
+        sys.exit(1)
+
+
 # ------------------------------------------------------------
 # LLM Generation
 # ------------------------------------------------------------
@@ -328,6 +350,7 @@ def main():
 
     LOG.info("Computing embedding")
     embedding = compute_embedding(inputs["prompt"])
+    preflight_dimensions(len(embedding), cfg.collection)
 
     LOG.info("Running hybrid vector query")
     chunks = run_hybrid_query(cluster, cfg, embedding)

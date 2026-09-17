@@ -180,6 +180,28 @@ def compute_embedding(text: str) -> List[float]:
     return compute_embeddings([text])[0]
 
 
+def preflight_dimensions(actual_dim: int, collection: str) -> None:
+    """Fail fast when the embedding dimension disagrees with VECTOR_DIMENSIONS (.env).
+    Loading 384-dim vectors into a collection whose index expects 1536 (or vice-versa)
+    otherwise fails silently at query time with an empty result."""
+    declared = get_env("VECTOR_DIMENSIONS")
+    if not declared:
+        return
+    try:
+        declared_dim = int(declared)
+    except ValueError:
+        LOG.warning("VECTOR_DIMENSIONS=%r is not an integer; skipping dimension preflight", declared)
+        return
+    if actual_dim != declared_dim:
+        LOG.error(
+            "Embedding dimension mismatch: provider '%s' produces %d-dim vectors but "
+            "VECTOR_DIMENSIONS=%d (loading into collection '%s'). The provider, the collection's "
+            "vector index, and VECTOR_DIMENSIONS must all agree (local/MiniLM=384, OpenAI=1536).",
+            resolve_provider(), actual_dim, declared_dim, collection,
+        )
+        raise SystemExit(1)
+
+
 # ---------------------------------------------------------------------------
 # Couchbase
 # ---------------------------------------------------------------------------
@@ -430,6 +452,9 @@ def main() -> None:
             _get_st_model(st_model_name())
         elif get_env("OPENAI_API_KEY"):
             _get_openai_client()
+        # Preflight: confirm the provider's output dimension matches VECTOR_DIMENSIONS
+        # before writing any vectors (a mismatch is otherwise silent at query time).
+        preflight_dimensions(len(compute_embeddings(["dimension probe"])[0]), args.collection)
 
     # Local ST is CPU/GIL-bound → sequential batches. OpenAI is network-bound → parallel.
     workers = 1 if using_sentence_transformers() else max(1, args.concurrency)
