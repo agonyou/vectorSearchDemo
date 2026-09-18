@@ -120,7 +120,11 @@ python load.py ... --collection yelp        --embedding-provider local
 python load.py ... --collection yelp_openai --embedding-provider openai
 ```
 
-You can also override the model name itself with `--embedding-model <name>` (the local sentence-transformers model or the OpenAI embedding model). Its output dimension must still match the target index.
+You can also override the model name itself with `--embedding-model <name>` (the local sentence-transformers model or the OpenAI embedding model), and the expected dimension with `--dimensions <n>`. Its output dimension must still match the target index.
+
+`load.py` is idempotent (it skips document IDs that already exist). When you switch embedding model or provider on a collection that already has data, pass `--overwrite` so the existing rows are re-embedded and replaced rather than skipped — otherwise stale old-dimension vectors remain.
+
+Configuration is centralized in `config.py` (a small pydantic settings module): it reads `.env`, validates per-provider requirements, and resolves the effective provider/model/dimension with the precedence documented below.
 
 > **Dimensions must agree.** The provider you load with, the vector index's `dimension`, and the provider you query with must all match (local = 384, OpenAI = 1536). A mismatch returns an empty result ("No matching context found") with no error. When you override the provider, point the command at a collection/index built for that dimension. As a safety net, the scripts run a startup preflight that fails fast if the embedding dimension disagrees with `VECTOR_DIMENSIONS` in `.env`.
 
@@ -302,6 +306,15 @@ vector_search = VectorSearch.from_vector_query(vector_query)
 This query will ultimately return the best matching documents by ID, along with a score. You can embed content fields in the index, but another common pattern that is often used is to perform KV lookups with the resulting IDs.
 
 The content gathered by these queries will then be sent, along with the prompt, to an LLM (OpenAI gpt-4o-mini), and the result displayed on the command line.
+
+### Tuning recall vs. latency (nprobes / num_candidates)
+
+Each RAG script exposes the vector search's recall/latency knob:
+
+- `ragHyperscale.py` / `ragComposite.py` (GSI): `--nprobes N` — the IVF probe count (the 4th argument of `APPROX_VECTOR_DISTANCE`). Higher = more index cells scanned = better recall, slower. Hyperscale defaults to `3`; Composite omits it (index default) unless you pass the flag.
+- `ragHybrid.py` (FTS): `--num-candidates N` — the FTS analogue; defaults to `--limit`.
+
+Higher values only produce a visibly different result once there's enough data for the IVF clusters to differ, so load a larger batch (e.g. `--limit 300`) before demoing the effect. `time python ragHyperscale.py ... --nprobes 1` vs `--nprobes 50` makes the latency tradeoff concrete. All three are also exposed as inputs in the web UI.
 
 ## Composite
 

@@ -38,14 +38,18 @@ from typing import Dict, Iterable, List
 
 from dotenv import load_dotenv
 
+import config
+
 # Load .env early (but NOT bucket/scope/collection)
 load_dotenv()
 
-# The embedding model is already cached on disk. Force HuggingFace fully offline so
-# sentence-transformers does NOT revalidate the cache over the network on every load
-# (that per-embed HEAD storm is what triggers HTTP 429 rate-limiting + long backoffs).
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# The embedding model is already cached on disk. Only force HuggingFace fully offline when no
+# HF_TOKEN is provided: with a token, allow authenticated online access (higher rate limits, #6);
+# without one, offline avoids the per-embed cache-revalidation HEAD storm that triggers HTTP 429
+# rate-limiting + long backoffs.
+if not os.getenv("HF_TOKEN"):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 LOG = logging.getLogger("loader")
@@ -55,10 +59,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-
-def get_env(name: str, default: str | None = None) -> str | None:
-    return os.getenv(name, default)
-
 
 def truncate(text: str, max_chars: int = 8000) -> str:
     return text if len(text) <= max_chars else text[:max_chars]
@@ -106,29 +106,24 @@ def maybe_add_location(doc: dict, row: dict) -> None:
 _ST_MODEL = None       # cache the SentenceTransformer across calls — load it ONCE, not per document
 _OPENAI_CLIENT = None  # cache the OpenAI client too
 
-# CLI overrides for the embedding provider ("local"/"openai") and model name. None → infer from
-# .env. Set from --embedding-provider / --embedding-model in main().
-_PROVIDER_OVERRIDE = None
-_MODEL_OVERRIDE = None
+# Central config (backlog #3): single source of truth for provider/model/dimension + creds.
+# Populated in main() from .env + CLI overrides.
+CFG: "config.Settings" = None
 
 
 def resolve_provider() -> str:
-    """Effective embedding provider: the --embedding-provider override if given, else inferred
-    from .env (SENTENCE_TRANSFORMER_MODEL set → 'local', otherwise 'openai')."""
-    if _PROVIDER_OVERRIDE:
-        return _PROVIDER_OVERRIDE
-    return "local" if get_env("SENTENCE_TRANSFORMER_MODEL") else "openai"
+    """Effective embedding provider, from the central config."""
+    return CFG.provider
 
 
 def st_model_name() -> str:
-    """Local model name — --embedding-model if given, else SENTENCE_TRANSFORMER_MODEL, else the
-    documented 384-dim default."""
-    return _MODEL_OVERRIDE or get_env("SENTENCE_TRANSFORMER_MODEL") or "all-MiniLM-L6-v2"
+    """Effective local embedding model name, from the central config."""
+    return CFG.embedding_model
 
 
 def openai_embedding_model() -> str:
-    """OpenAI embedding model — --embedding-model if given, else OPENAI_EMBEDDING_MODEL, else default."""
-    return _MODEL_OVERRIDE or get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    """Effective OpenAI embedding model name, from the central config."""
+    return CFG.embedding_model
 
 
 def _get_st_model(name: str):
@@ -146,8 +141,8 @@ def _get_openai_client():
     if _OPENAI_CLIENT is None:
         from openai import OpenAI
         _OPENAI_CLIENT = OpenAI(
-            api_key=get_env("OPENAI_API_KEY"),
-            base_url=get_env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            api_key=CFG.openai_api_key,
+            base_url=CFG.openai_base_url,
         )
     return _OPENAI_CLIENT
 
@@ -172,7 +167,7 @@ def compute_embeddings(texts: List[str]) -> List[List[float]]:
         except Exception as e:
             LOG.warning("SentenceTransformer batch failed, falling back to OpenAI: %s", e)
 
-    if not get_env("OPENAI_API_KEY"):
+    if not CFG.openai_api_key:
         raise RuntimeError("No embedding provider configured")
 
     client = _get_openai_client()
@@ -188,28 +183,23 @@ def compute_embedding(text: str) -> List[float]:
 
 
 def preflight_dimensions(actual_dim: int, collection: str) -> None:
-    """Fail fast when the embedding dimension disagrees with VECTOR_DIMENSIONS (.env).
-    Loading 384-dim vectors into a collection whose index expects 1536 (or vice-versa)
-    otherwise fails silently at query time with an empty result."""
-    declared = get_env("VECTOR_DIMENSIONS")
-    if not declared:
-        LOG.info("Preflight skipped: VECTOR_DIMENSIONS not set in .env (nothing to compare against).")
+    """Fail fast when the embedding dimension disagrees with the expected dimension (--dimensions,
+    else VECTOR_DIMENSIONS, else derived from the model). Loading 384-dim vectors into a collection
+    whose index expects 1536 (or vice-versa) otherwise fails silently at query time."""
+    declared = CFG.declared_dimensions
+    if declared is None:
+        LOG.info("Preflight skipped: no expected dimension (set VECTOR_DIMENSIONS or --dimensions).")
         return
-    try:
-        declared_dim = int(declared)
-    except ValueError:
-        LOG.warning("VECTOR_DIMENSIONS=%r is not an integer; skipping dimension preflight", declared)
-        return
-    if actual_dim != declared_dim:
+    if actual_dim != declared:
         LOG.error(
-            "Embedding dimension mismatch: provider '%s' produces %d-dim vectors but "
-            "VECTOR_DIMENSIONS=%d (loading into collection '%s'). The provider, the collection's "
-            "vector index, and VECTOR_DIMENSIONS must all agree (local/MiniLM=384, OpenAI=1536).",
-            resolve_provider(), actual_dim, declared_dim, collection,
+            "Embedding dimension mismatch: provider '%s' model '%s' produces %d-dim vectors but "
+            "expected %d (loading into collection '%s'). The provider/model, the collection's "
+            "vector index, and the expected dimension must all agree (local/MiniLM=384, OpenAI=1536).",
+            CFG.provider, CFG.embedding_model, actual_dim, declared, collection,
         )
         raise SystemExit(1)
-    LOG.info("Preflight OK: %d-dim %s embeddings match VECTOR_DIMENSIONS (collection '%s').",
-             actual_dim, resolve_provider(), collection)
+    LOG.info("Preflight OK: %d-dim %s embeddings match expected dimension (collection '%s').",
+             actual_dim, CFG.provider, collection)
 
 
 # ---------------------------------------------------------------------------
@@ -227,11 +217,11 @@ def get_collection(bucket: str, scope: str, collection: str):
     from couchbase.exceptions import CouchbaseException
 
     cluster = Cluster(
-        get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1"),
+        CFG.couchbase_connstr,
         ClusterOptions(
             PasswordAuthenticator(
-                get_env("COUCHBASE_USERNAME", "Administrator"),
-                get_env("COUCHBASE_PASSWORD", "password"),
+                CFG.couchbase_username,
+                CFG.couchbase_password,
             )
         ),
     )
@@ -349,6 +339,13 @@ def main() -> None:
     # Control flags
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Re-embed and upsert every row, including document IDs that already exist. Use when "
+             "switching embedding model/provider so stale old-dimension vectors are replaced "
+             "(the loader is otherwise idempotent and skips existing IDs).",
+    )
 
     # Embedding provider override (see #1). Omit to keep the .env-driven default.
     parser.add_argument(
@@ -364,6 +361,13 @@ def main() -> None:
         default=None,
         help="Override the embedding model name for the chosen provider (local sentence-transformers "
              "model or OpenAI embedding model). Its output dimension must match the target index.",
+    )
+    parser.add_argument(
+        "--dimensions",
+        type=int,
+        default=None,
+        help="Override the expected embedding dimension for the preflight check. Precedence: this "
+             "flag > VECTOR_DIMENSIONS (.env) > derived from the model.",
     )
 
     # Throughput controls
@@ -384,9 +388,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    global _PROVIDER_OVERRIDE, _MODEL_OVERRIDE
-    _PROVIDER_OVERRIDE = args.embedding_provider
-    _MODEL_OVERRIDE = args.embedding_model
+    global CFG
+    CFG = config.Settings.load(
+        provider=args.embedding_provider,
+        model=args.embedding_model,
+        dimensions=args.dimensions,
+    )
+    CFG.validate_for_embedding()
 
     rows = load_rows(args.data)
     collection = get_collection(args.bucket, args.scope, args.collection)
@@ -405,21 +413,26 @@ def main() -> None:
         work.append((doc_id, contents, row))
 
     # ---- Stage 2: drop already-loaded docs (idempotent) via batched exists_multi --------
+    # With --overwrite, skip the existence check entirely and re-embed/upsert everything.
     skipped = 0
-    pending = []
-    for chunk in _chunked(work, 500):
-        ids = [w[0] for w in chunk]
-        try:
-            res = collection.exists_multi(ids)
-            results = getattr(res, "results", res)  # {id: ExistsResult}
-        except Exception:
-            results = {}  # if the bulk check fails, fall through and let upsert overwrite
-        for w in chunk:
-            er = results.get(w[0]) if isinstance(results, dict) else None
-            if er is not None and getattr(er, "exists", False):
-                skipped += 1
-            else:
-                pending.append(w)
+    if args.overwrite:
+        pending = list(work)
+        LOG.info("--overwrite set: re-embedding all %d rows (existing IDs will be replaced)", len(work))
+    else:
+        pending = []
+        for chunk in _chunked(work, 500):
+            ids = [w[0] for w in chunk]
+            try:
+                res = collection.exists_multi(ids)
+                results = getattr(res, "results", res)  # {id: ExistsResult}
+            except Exception:
+                results = {}  # if the bulk check fails, fall through and let upsert overwrite
+            for w in chunk:
+                er = results.get(w[0]) if isinstance(results, dict) else None
+                if er is not None and getattr(er, "exists", False):
+                    skipped += 1
+                else:
+                    pending.append(w)
 
     if args.limit:
         pending = pending[: args.limit]
@@ -467,7 +480,7 @@ def main() -> None:
     if total:
         if using_sentence_transformers():
             _get_st_model(st_model_name())
-        elif get_env("OPENAI_API_KEY"):
+        elif CFG.openai_api_key:
             _get_openai_client()
         # Preflight: confirm the provider's output dimension matches VECTOR_DIMENSIONS
         # before writing any vectors (a mismatch is otherwise silent at query time).

@@ -92,11 +92,13 @@
                 <input type="text" placeholder="Email sender" id="sender" value="john.doe@example.com" />
                 <input type="text" placeholder="Email receiver" id="receiver" value="support@aetheros.com" />
                 <input type="text" placeholder="Prompt" id="prompt" value="What topics does John Doe most discuss?" />
+                <input type="number" id="compNprobes" placeholder="nprobes (optional)" min="1" />
                 <button onclick="setRagCmdComposite()">Query</button>
             </section>
 
             <section id="content5">
                 <input type="text" id="hyperPrompt" placeholder="Prompt" value="What are some movies that involve escapes?" />
+                <input type="number" id="hyperNprobes" placeholder="nprobes" value="3" min="1" />
                 <button onclick="setRagCmdHyperscale()">Query</button>
             </section>
 
@@ -105,6 +107,7 @@
                 <input type="text" id="hybridLongitude" placeholder="Longitude" value="-119.711196" />
                 <input type="text" id="hybridRadius" placeholder="Radius" value="5mi" />
                 <input type="text" id="hybridPrompt" placeholder="Prompt" value="Where can I go for various health and wellness services?" />
+                <input type="number" id="hybridNumCandidates" placeholder="num_candidates (optional)" min="1" />
                 <button onclick="setRagCmdHybrid()">Query</button>
             </section>
         </div>

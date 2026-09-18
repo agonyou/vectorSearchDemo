@@ -168,6 +168,11 @@ function setRagCmdComposite() {
         cmd += ` --prompt "${prompt}"`;
     }
 
+    const nprobes = document.getElementById('compNprobes').value.trim();
+    if (nprobes) {
+        cmd += ` --nprobes ${nprobes}`;
+    }
+
     setRagCmd(withEmbeddingFlags(cmd));
 }
 
@@ -183,6 +188,11 @@ function setRagCmdHyperscale() {
 
     if (prompt) {
         cmd += ` --prompt "${prompt}"`;
+    }
+
+    const nprobes = document.getElementById('hyperNprobes').value.trim();
+    if (nprobes) {
+        cmd += ` --nprobes ${nprobes}`;
     }
 
     setRagCmd(withEmbeddingFlags(cmd));
@@ -211,6 +221,11 @@ function setRagCmdHybrid() {
 
     if (latitude && longitude && radius) {
         cmd += ` --latitude ${latitude} --longitude ${longitude} --radius ${radius}`;
+    }
+
+    const numCandidates = document.getElementById('hybridNumCandidates').value.trim();
+    if (numCandidates) {
+        cmd += ` --num-candidates ${numCandidates}`;
     }
 
     setRagCmd(withEmbeddingFlags(cmd));
