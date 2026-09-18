@@ -26,22 +26,18 @@ from openai import OpenAI
 
 load_dotenv()
 
-# Embedding model is cached on disk; force HF offline so sentence-transformers doesn't
-# revalidate the cache over the network on every run (the HEAD storm → HTTP 429 backoffs).
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+import config
+
+# Only force HF fully offline when no HF_TOKEN is provided. With a token, allow authenticated
+# online access (higher rate limits, #6); without one, offline avoids the per-run cache
+# revalidation HEAD storm that triggers HTTP 429 backoffs.
+if not os.getenv("HF_TOKEN"):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 LOG = logging.getLogger("rag")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-
-def get_env(name: str, default: str | None = None, required: bool = False) -> str | None:
-    val = os.getenv(name, default)
-    if required and not val:
-        LOG.error("Required environment variable %s is not set", name)
-        sys.exit(1)
-    return val
 
 
 # ------------------------------------------------------------
@@ -56,11 +52,8 @@ def get_openai_client() -> OpenAI:
 
     if _openai_client is None:
         _openai_client = OpenAI(
-            api_key=get_env("OPENAI_API_KEY", required=True),
-            base_url=get_env(
-                "OPENAI_BASE_URL",
-                "https://api.openai.com/v1",
-            ),
+            api_key=CFG.openai_api_key,
+            base_url=CFG.openai_base_url,
         )
 
     return _openai_client
@@ -80,6 +73,7 @@ class RAGConfig:
     content_field: str = "contents"
 
     limit: int = 5
+    nprobes: Optional[int] = None  # IVF probe count; None → SDK/index default
 
 
 def load_config_from_args(args) -> RAGConfig:
@@ -87,6 +81,7 @@ def load_config_from_args(args) -> RAGConfig:
         bucket=args.bucket,
         scope=args.scope,
         collection=args.collection,
+        nprobes=args.nprobes,
     )
 
 
@@ -96,30 +91,48 @@ def load_config_from_args(args) -> RAGConfig:
 
 _st_model = None
 
+# Central config (backlog #3): single source of truth for provider/model/dimension + creds.
+# Populated in main() from .env + CLI overrides.
+CFG: "config.Settings" = None
+
+
+def resolve_provider() -> str:
+    """Effective embedding provider, from the central config."""
+    return CFG.provider
+
+
+def st_model_name() -> str:
+    """Effective local embedding model name, from the central config."""
+    return CFG.embedding_model
+
+
+def openai_embedding_model() -> str:
+    """Effective OpenAI embedding model name, from the central config."""
+    return CFG.embedding_model
+
 
 def compute_embedding(text: str) -> List[float]:
     """
-    Compute an embedding using:
-    1) SentenceTransformer (if configured)
-    2) OpenAI-compatible API fallback
+    Compute an embedding using the resolved provider:
+    - "local"  → SentenceTransformer (falls back to OpenAI only on error)
+    - "openai" → OpenAI-compatible API
     """
     global _st_model
 
-    st_model_name = get_env("SENTENCE_TRANSFORMER_MODEL")
-
-    if st_model_name:
+    if resolve_provider() == "local":
+        name = st_model_name()
         try:
             if _st_model is None:
-                LOG.info("Loading SentenceTransformer: %s", st_model_name)
+                LOG.info("Loading SentenceTransformer: %s", name)
                 from sentence_transformers import SentenceTransformer
-                _st_model = SentenceTransformer(st_model_name)
+                _st_model = SentenceTransformer(name)
 
             return _st_model.encode(text).tolist()
         except Exception as e:
             LOG.warning("SentenceTransformer failed, falling back to OpenAI: %s", e)
 
     client = get_openai_client()
-    model = get_env("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    model = openai_embedding_model()
 
     resp = client.embeddings.create(
         model=model,
@@ -129,13 +142,33 @@ def compute_embedding(text: str) -> List[float]:
     return resp.data[0].embedding
 
 
+def preflight_dimensions(actual_dim: int, collection: str) -> None:
+    """Fail fast when the embedding dimension disagrees with VECTOR_DIMENSIONS (.env).
+    A mismatch (e.g. a 1536-dim query against a 384-dim collection) otherwise returns an
+    empty result with no error — this turns that silent miss into an actionable message."""
+    declared = CFG.declared_dimensions
+    if declared is None:
+        LOG.info("Preflight skipped: no expected dimension (set VECTOR_DIMENSIONS or --dimensions).")
+        return
+    if actual_dim != declared:
+        LOG.error(
+            "Embedding dimension mismatch: provider '%s' model '%s' produced %d-dim vectors but "
+            "expected %d (querying collection '%s'). The provider/model, the collection's vector "
+            "index, and the expected dimension must all agree (local/MiniLM=384, OpenAI=1536).",
+            CFG.provider, CFG.embedding_model, actual_dim, declared, collection,
+        )
+        sys.exit(1)
+    LOG.info("Preflight OK: %d-dim %s embeddings match expected dimension (collection '%s').",
+             actual_dim, CFG.provider, collection)
+
+
 # ------------------------------------------------------------
 # LLM Generation
 # ------------------------------------------------------------
 
 def generate_with_llm(prompt: str, context: str) -> str:
     client = get_openai_client()
-    model = get_env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+    model = CFG.openai_chat_model
 
     messages = [
         {
@@ -170,11 +203,11 @@ def get_cluster():
     from couchbase.auth import PasswordAuthenticator
 
     return Cluster(
-        get_env("COUCHBASE_CONNSTR", "couchbase://127.0.0.1"),
+        CFG.couchbase_connstr,
         ClusterOptions(
             PasswordAuthenticator(
-                get_env("COUCHBASE_USERNAME", "Administrator"),
-                get_env("COUCHBASE_PASSWORD", "password"),
+                CFG.couchbase_username,
+                CFG.couchbase_password,
             )
         ),
     )
@@ -203,11 +236,14 @@ def run_composite_query(
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
+    # nprobes is the optional 4th arg of APPROX_VECTOR_DISTANCE; omit it to keep the index default.
+    distance_args = '"DOT"' if cfg.nprobes is None else f'"DOT", {cfg.nprobes}'
+
     statement = f"""
     SELECT RAW e.{cfg.content_field}
     FROM `{cfg.bucket}`.`{cfg.scope}`.`{cfg.collection}` e
     {where_sql}
-    ORDER BY APPROX_VECTOR_DISTANCE(e.{cfg.embedding_field}, $vector, "DOT")
+    ORDER BY APPROX_VECTOR_DISTANCE(e.{cfg.embedding_field}, $vector, {distance_args})
     LIMIT $limit
     """
 
@@ -233,6 +269,36 @@ def parse_args():
     parser.add_argument("--prompt")
     parser.add_argument("--sender")
     parser.add_argument("--receiver")
+
+    # Embedding provider override (see #1). Omit to keep the .env-driven default.
+    parser.add_argument(
+        "--embedding-provider",
+        choices=["local", "openai"],
+        default=None,
+        help="Force the embedding provider. Omit to infer from .env "
+             "(SENTENCE_TRANSFORMER_MODEL set → local, else openai). Must match the "
+             "collection's index dimensions (local/MiniLM=384, openai=1536).",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        default=None,
+        help="Override the embedding model name for the chosen provider (local sentence-transformers "
+             "model or OpenAI embedding model). Its output dimension must match the collection's index.",
+    )
+    parser.add_argument(
+        "--dimensions",
+        type=int,
+        default=None,
+        help="Override the expected embedding dimension for the preflight check. Precedence: this "
+             "flag > VECTOR_DIMENSIONS (.env) > derived from the model.",
+    )
+    parser.add_argument(
+        "--nprobes",
+        type=int,
+        default=None,
+        help="IVF probe count for APPROX_VECTOR_DISTANCE (recall vs latency). Omit to use the "
+             "index default; higher = better recall, slower.",
+    )
 
     return parser.parse_args()
 
@@ -266,6 +332,15 @@ def main():
     print("\n=== Couchbase Composite Vector RAG Demo ===\n")
 
     args = parse_args()
+
+    global CFG
+    CFG = config.Settings.load(
+        provider=args.embedding_provider,
+        model=args.embedding_model,
+        dimensions=args.dimensions,
+    )
+    CFG.validate_for_rag()
+
     prompt, sender, receiver = resolve_inputs(args)
 
     cfg = load_config_from_args(args)
@@ -273,6 +348,7 @@ def main():
 
     LOG.info("Computing embedding")
     embedding = compute_embedding(prompt)
+    preflight_dimensions(len(embedding), cfg.collection)
 
     LOG.info("Running composite vector query")
     chunks = run_composite_query(
