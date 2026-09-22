@@ -1,4 +1,5 @@
 python-dotenv
+pydantic
 openai
 couchbase
 sentence-transformers
