@@ -108,4 +108,7 @@ def run_cmd():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, threaded=True, port=8080)
+    # debug=False disables the auto-reloader (which would otherwise drop long-running requests
+    # like /test-connection mid-flight → "Failed to fetch" in the browser) and the Werkzeug
+    # debugger. threaded=True lets the config/test endpoints run alongside a streaming /run.
+    app.run(debug=False, threaded=True, port=8080)
