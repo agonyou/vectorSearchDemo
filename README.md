@@ -64,10 +64,37 @@ Example use cases:
 
 # Step 0: Prerequisites
 
-Make sure you've got Python running. You'll probably want to create a virtual environment first, like this:
+## Install Python
+
+This demo requires **Python 3.12 or newer**. Check what you have with `python3 --version` (macOS/Linux) or `python --version` (Windows).
+
+If you need to install or upgrade Python, use your platform's package manager:
+
+**macOS (Homebrew):**
 
 ```bash
-# Linux
+# Install Homebrew first if you don't have it: https://brew.sh
+brew install python@3.12
+# brew installs it as `python3.12`; confirm:
+python3.12 --version
+```
+
+**Windows (winget):**
+
+```powershell
+winget install Python.Python.3.12
+# Open a new terminal, then confirm:
+python --version
+```
+
+On Linux, use your distro's package manager (e.g. `sudo apt install python3.12 python3.12-venv` on Debian/Ubuntu).
+
+## Create a virtual environment
+
+Once Python is installed, create a virtual environment (use the `python3.12` binary if `python3` points at an older version):
+
+```bash
+# Linux/macOS
 python3 -m venv venv
 
 # Windows
@@ -93,7 +120,74 @@ Then install requirements:
 python -m pip install -r requirements.txt
 ```
 
-At this point, you may want to go ahead and create an `.env` file, using the settings you need for your environment. Check out `.env.sample` for an example.
+At this point, you may want to go ahead and create an `.env` file, using the settings you need for your environment. Check out `.env.sample` for an example. You'll fill in the Couchbase connection string, username, and password from the Capella cluster you set up in **Step 0.5** below.
+
+Now you're ready to set up your Couchbase Capella cluster.
+
+# Step 0.5: Set up Couchbase Capella
+
+Before you can load any data, you need a Couchbase Capella cluster with a bucket, the collections this demo uses, a database user, and network access configured. If you don't have a cluster yet, create a free tier one from the [Capella UI](https://cloud.couchbase.com/) first.
+
+## 1. Create a bucket
+
+In the Capella UI, open your cluster and go to **Data Tools → Buckets** (or **Settings → Buckets**), then **Create Bucket**:
+
+- **Name:** `vectorSearchDemo` (this is what the demo commands use; use another name if you prefer, but pass it consistently via `--bucket`).
+- Leave the memory quota at the default for the free tier.
+
+> Bucket creation isn't available through SQL++/N1QL — it must be done in the Capella UI (or the Management API).
+
+## 2. Create the collections
+
+Every new bucket has a `_default` scope, but this demo stores each dataset in its own **collection** under that scope, and those collections do **not** exist by default. Create them.
+
+Easiest path — open the **Query Workbench** (Data Tools → Query) and run:
+
+```sql
+CREATE COLLECTION `vectorSearchDemo`.`_default`.`movies` IF NOT EXISTS;
+CREATE COLLECTION `vectorSearchDemo`.`_default`.`emails` IF NOT EXISTS;
+CREATE COLLECTION `vectorSearchDemo`.`_default`.`yelp`   IF NOT EXISTS;
+```
+
+(You can also create them via **Data Tools → Collections** in the UI.) If you plan to use the OpenAI (1536-dim) provider, also create the parallel `movies_openai` / `emails_openai` / `yelp_openai` collections.
+
+To run ad-hoc `SELECT`s for troubleshooting (the vector indexes don't serve plain selects), also add a primary index per collection:
+
+```sql
+CREATE PRIMARY INDEX ON `vectorSearchDemo`.`_default`.`movies`;
+CREATE PRIMARY INDEX ON `vectorSearchDemo`.`_default`.`emails`;
+CREATE PRIMARY INDEX ON `vectorSearchDemo`.`_default`.`yelp`;
+```
+
+## 3. Create a database user with a custom role
+
+The demo scripts connect with a Couchbase **database user** (this is separate from your Capella login). Go to **Settings → Cluster Access → Create Database Credentials** and create one:
+
+- **Username / password:** choose your own; these go into `.env` as `COUCHBASE_USERNAME` / `COUCHBASE_PASSWORD`.
+- **Roles:** grant a custom role scoped to the demo bucket with **all grants** — the simplest reliable option is to give the credential **read and write access to all buckets** (or at minimum to `vectorSearchDemo`), covering Data, Query, and Search. The loader writes documents, the RAG scripts query the Data/Query/Search services, and index creation needs the management grants, so the credential needs the full set of data + query + search privileges on the bucket.
+
+> If you scope the role too narrowly (e.g. read-only, or Data but not Query/Search), you'll see authentication or "permission denied" errors when loading or querying. When in doubt for a demo, grant full access to `vectorSearchDemo`.
+
+## 4. Allow network access
+
+Capella blocks all inbound connections by default. Go to **Settings → Networking → Allowed IP Addresses → Add Allowed IP** and either:
+
+- Add your current IP, or
+- **Allow access from anywhere** by adding `0.0.0.0/0`.
+
+> `0.0.0.0/0` opens the cluster to the entire internet. That's fine for a short-lived, throwaway demo cluster, but don't leave it on a cluster with real data — restrict it to known IPs and remove the rule when the demo is over.
+
+## 5. Get the connection string
+
+Go to the **Connect** tab in the Capella UI (**cluster → Connect**). Copy the **Public Connection String** shown there — it looks like `couchbases://cb.xxxxxxxx.cloud.couchbase.com`.
+
+Put it, along with the database user from step 3, into your `.env`:
+
+```bash
+COUCHBASE_CONNSTR=couchbases://cb.xxxxxxxx.cloud.couchbase.com
+COUCHBASE_USERNAME=your-db-user
+COUCHBASE_PASSWORD=your-db-password
+```
 
 Now you're ready to start loading data.
 
