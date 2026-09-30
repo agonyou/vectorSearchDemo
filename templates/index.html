@@ -10,7 +10,55 @@
 
 <body>
 <div class="container">
-    <h1>Couchbase Vector Search Demo</h1>
+    <div class="topbar">
+        <h1>Couchbase Vector Search Demo</h1>
+        <button class="config-toggle" onclick="openConfig()">⚙ Configuration</button>
+    </div>
+
+    <!-- Configuration drawer: edit .env values and test connectivity without leaving the browser.
+         Localhost demo only — writes secrets to .env on Save. -->
+    <div id="configOverlay" class="drawer-overlay" onclick="closeConfig()"></div>
+    <aside id="configDrawer" class="drawer" aria-hidden="true">
+        <div class="drawer-header">
+            <h2>Configuration</h2>
+            <button class="drawer-close" onclick="closeConfig()" aria-label="Close">×</button>
+        </div>
+        <p class="drawer-note">These values are saved to <code>.env</code>. You can also edit
+            <code>.env</code> by hand or run <code>python setup.py</code> in a terminal.</p>
+
+        <fieldset>
+            <legend>Couchbase (from the Capella Connect tab)</legend>
+            <label>Connection string
+                <input type="text" id="cfgConnstr" placeholder="couchbases://cb.xxxx.cloud.couchbase.com" /></label>
+            <label>Username <input type="text" id="cfgUsername" /></label>
+            <label>Password <input type="password" id="cfgPassword" placeholder="••••••••" /></label>
+            <label>Bucket <input type="text" id="cfgBucket" placeholder="vectorSearchDemo" /></label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Embedding</legend>
+            <label>Provider
+                <select id="cfgProvider">
+                    <option value="local">Local — sentence-transformers</option>
+                    <option value="openai">OpenAI</option>
+                </select></label>
+            <label>Model <input type="text" id="cfgModel" placeholder="all-MiniLM-L6-v2" /></label>
+            <label>Dimensions <input type="text" id="cfgDimensions" placeholder="384" /></label>
+        </fieldset>
+
+        <fieldset>
+            <legend>OpenAI (required for RAG generation)</legend>
+            <label>API key <input type="password" id="cfgOpenaiKey" placeholder="sk-•••••••" /></label>
+            <label>Chat model <input type="text" id="cfgOpenaiChat" placeholder="gpt-4o-mini" /></label>
+        </fieldset>
+
+        <div class="drawer-actions">
+            <button class="btn-test" onclick="testConnection()">Test connection</button>
+            <button class="btn-save" onclick="saveConfig()">Save to .env</button>
+        </div>
+        <div id="configStatus" class="config-status"></div>
+        <ul id="preflightResults" class="preflight-results"></ul>
+    </aside>
 
     <!-- Global embedding controls: the provider + optional model name drive EVERY load and RAG
          command below. Each dataset maps to its local collection, or its <name>_openai (1536-dim)
