@@ -24,19 +24,38 @@ def _result(name: str, ok: bool, detail: str) -> Dict:
     return {"name": name, "ok": ok, "detail": detail}
 
 
-def _connect(settings: "config.Settings"):
-    """Open a cluster connection and block until it's ready. Raises on failure."""
+# Bounded timeouts so the connectivity check always returns promptly instead of hanging the
+# request (a slow/unreachable cluster or a bad OpenAI key would otherwise block for a long time,
+# which the browser reports as "Failed to fetch").
+CONNECT_TIMEOUT_SECONDS = 8
+OPENAI_TIMEOUT_SECONDS = 10
+
+
+def _connect(settings: "config.Settings", timeout_seconds: int = CONNECT_TIMEOUT_SECONDS):
+    """Open a cluster connection and block until it's ready (bounded). Raises on failure.
+
+    Sets explicit connect/bootstrap/KV timeouts — wait_until_ready alone doesn't bound the SDK's
+    underlying operations, so a bad connection string or a blocked IP could otherwise hang far
+    longer than timeout_seconds."""
     from couchbase.cluster import Cluster
-    from couchbase.options import ClusterOptions
+    from couchbase.options import ClusterOptions, ClusterTimeoutOptions
     from couchbase.auth import PasswordAuthenticator
 
+    t = timedelta(seconds=timeout_seconds)
     cluster = Cluster(
         settings.couchbase_connstr,
         ClusterOptions(
-            PasswordAuthenticator(settings.couchbase_username, settings.couchbase_password)
+            PasswordAuthenticator(settings.couchbase_username, settings.couchbase_password),
+            timeout_options=ClusterTimeoutOptions(
+                connect_timeout=t,
+                bootstrap_timeout=t,
+                resolve_timeout=t,
+                kv_timeout=t,
+                management_timeout=t,
+            ),
         ),
     )
-    cluster.wait_until_ready(timedelta(seconds=15))
+    cluster.wait_until_ready(t)
     return cluster
 
 
@@ -58,7 +77,11 @@ def _check_embedding(settings: "config.Settings", results: List[Dict]) -> None:
                     "provider 'openai' selected but OPENAI_API_KEY is not set",
                 ))
                 return
-            client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+            client = OpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+                timeout=OPENAI_TIMEOUT_SECONDS,
+            )
             resp = client.embeddings.create(model=model, input="connectivity probe")
             vec = resp.data[0].embedding
 
@@ -91,7 +114,11 @@ def _check_openai_for_rag(settings: "config.Settings", results: List[Dict]) -> N
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+        client = OpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            timeout=OPENAI_TIMEOUT_SECONDS,
+        )
         client.models.list()  # cheap call that validates the key/endpoint
         results.append(_result("OpenAI (for RAG)", True, f"key valid; chat model '{settings.openai_chat_model}'"))
     except Exception as e:  # noqa: BLE001
