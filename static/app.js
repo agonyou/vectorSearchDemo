@@ -297,15 +297,28 @@ async function saveConfig() {
 }
 
 async function testConnection() {
-    setConfigStatus('Testing…', '');
+    const btn = document.querySelector('.btn-test');
+    setConfigStatus('Testing… (can take up to ~20s)', '');
     const list = document.getElementById('preflightResults');
     list.innerHTML = '';
+    if (btn) btn.disabled = true;
+
+    // Abort the request if it runs long, so we show a clear message instead of a raw
+    // "Failed to fetch" network error.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+
     try {
         const res = await fetch('/test-connection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(collectConfig())
+            body: JSON.stringify(collectConfig()),
+            signal: controller.signal
         });
+        if (!res.ok) {
+            setConfigStatus('Test failed: server returned ' + res.status, 'fail');
+            return;
+        }
         const data = await res.json();
         for (const r of data.results) {
             const li = document.createElement('li');
@@ -318,6 +331,12 @@ async function testConnection() {
             data.ok ? 'pass' : 'fail'
         );
     } catch (e) {
-        setConfigStatus('Test failed: ' + e, 'fail');
+        const msg = (e && e.name === 'AbortError')
+            ? 'Test timed out — check the connection string and that your IP is allowed in Capella (Step 0.5).'
+            : 'Could not reach the server. Is app.py still running?';
+        setConfigStatus(msg, 'fail');
+    } finally {
+        clearTimeout(timer);
+        if (btn) btn.disabled = false;
     }
 }
