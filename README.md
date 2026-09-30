@@ -120,7 +120,7 @@ Then install requirements:
 python -m pip install -r requirements.txt
 ```
 
-At this point, you may want to go ahead and create an `.env` file, using the settings you need for your environment. Check out `.env.sample` for an example. You'll fill in the Couchbase connection string, username, and password from the Capella cluster you set up in **Step 0.5** below.
+You'll need an `.env` file holding your Couchbase connection string, credentials, and (for the RAG scripts) an OpenAI key. You have three ways to create/edit it — pick whichever you prefer; they all read and write the same `.env`. See **Configuring the demo** below for details. You'll get the actual connection string and credentials from the Capella cluster you set up in **Step 0.5**.
 
 Now you're ready to set up your Couchbase Capella cluster.
 
@@ -189,7 +189,63 @@ COUCHBASE_USERNAME=your-db-user
 COUCHBASE_PASSWORD=your-db-password
 ```
 
-Now you're ready to start loading data.
+Now you're ready to configure the demo and start loading data.
+
+# Configuring the demo
+
+All configuration lives in a single `.env` file (Couchbase connection + credentials, embedding provider/model, OpenAI key). There are three ways to create and edit it — they all read and write the same `.env`, so you can mix and match:
+
+## Option A — Setup wizard (terminal, no manual editing)
+
+Run the interactive wizard and answer the prompts:
+
+```bash
+python setup.py
+```
+
+It shows your current values as defaults (so re-running only changes what you type), writes `.env` for you, and offers to run the connectivity test at the end. This is the easiest option if you'd rather not touch `.env` by hand.
+
+## Option B — Web UI configuration drawer
+
+Start the web UI (`python app.py`) and click **⚙ Configuration** in the top-right. The drawer lets you enter the connection string, credentials, embedding provider/model, and OpenAI key, then:
+
+- **Test connection** runs the same readiness checks below against the values in the form (before saving).
+- **Save to .env** writes them to `.env`.
+
+Existing secrets (password, API key) are shown masked; leave them as-is to keep the stored value. Saving normalizes `.env` formatting (consistent key order; inline comments are dropped), but never changes values you didn't edit.
+
+## Option C — Edit `.env` by hand
+
+Copy the sample and edit it in your editor of choice:
+
+```bash
+cp .env.sample .env      # Linux/macOS
+copy .env.sample .env    # Windows
+```
+
+`.env.sample` documents every setting (connection, provider/model, the 384/1536 dimension matrix, optional `HF_TOKEN`).
+
+## Test connectivity before loading
+
+However you configured it, verify everything is reachable **before** loading data — cluster connection, bucket + collections, the embedding provider's dimension, and the OpenAI key:
+
+```bash
+python setup.py    # answer "y" at the connectivity-test prompt, or just re-run and keep existing values
+```
+
+or click **Test connection** in the web UI drawer. A passing run looks like:
+
+```
+✓ Couchbase connection: reachable at couchbases://cb.xxxx.cloud.couchbase.com
+✓ Bucket: 'vectorSearchDemo' found
+✓ Collections: found under _default: ['movies', 'emails', 'yelp']
+✓ Embedding provider: provider 'local' model 'all-MiniLM-L6-v2' → 384-dim (matches expected 384)
+✓ OpenAI (for RAG): key valid; chat model 'gpt-4o-mini'
+```
+
+A failed check tells you exactly what to fix (unreachable cluster → check the connection string / allowed IPs from Step 0.5; missing collections → create them; dimension mismatch → provider/model doesn't match the index).
+
+> The web UI writes secrets to `.env` on Save and executes commands locally with no authentication — only run it on `localhost` for a trusted, local demo.
 
 # Step 1: Loading the data
 

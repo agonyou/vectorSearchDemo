@@ -230,3 +230,94 @@ function setRagCmdHybrid() {
 
     setRagCmd(withEmbeddingFlags(cmd));
 }
+
+// ---------------------------------------------------------------------------
+// Configuration drawer: read/save .env and test connectivity via the backend.
+// ---------------------------------------------------------------------------
+
+function openConfig() {
+    document.getElementById('configDrawer').classList.add('open');
+    document.getElementById('configOverlay').classList.add('open');
+    loadConfig();
+}
+
+function closeConfig() {
+    document.getElementById('configDrawer').classList.remove('open');
+    document.getElementById('configOverlay').classList.remove('open');
+}
+
+async function loadConfig() {
+    const res = await fetch('/config');
+    const c = await res.json();
+    document.getElementById('cfgConnstr').value = c.connstr || '';
+    document.getElementById('cfgUsername').value = c.username || '';
+    document.getElementById('cfgPassword').value = c.password || '';   // masked
+    document.getElementById('cfgBucket').value = c.bucket || '';
+    document.getElementById('cfgProvider').value = c.provider || 'local';
+    document.getElementById('cfgModel').value = c.model || '';
+    document.getElementById('cfgDimensions').value = c.dimensions || '';
+    document.getElementById('cfgOpenaiKey').value = c.openai_key || '';  // masked
+    document.getElementById('cfgOpenaiChat').value = c.openai_chat_model || '';
+}
+
+function collectConfig() {
+    return {
+        connstr: document.getElementById('cfgConnstr').value.trim(),
+        username: document.getElementById('cfgUsername').value.trim(),
+        password: document.getElementById('cfgPassword').value,          // '•' → keep existing
+        bucket: document.getElementById('cfgBucket').value.trim(),
+        provider: document.getElementById('cfgProvider').value,
+        model: document.getElementById('cfgModel').value.trim(),
+        dimensions: document.getElementById('cfgDimensions').value.trim(),
+        openai_key: document.getElementById('cfgOpenaiKey').value,       // '•' → keep existing
+        openai_chat_model: document.getElementById('cfgOpenaiChat').value.trim(),
+    };
+}
+
+function setConfigStatus(msg, kind) {
+    const el = document.getElementById('configStatus');
+    el.textContent = msg;
+    el.className = 'config-status' + (kind ? ' ' + kind : '');
+}
+
+async function saveConfig() {
+    setConfigStatus('Saving…', '');
+    try {
+        const res = await fetch('/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(collectConfig())
+        });
+        const data = await res.json();
+        setConfigStatus(data.ok ? 'Saved to .env ✓' : 'Save failed', data.ok ? 'pass' : 'fail');
+        if (data.ok) loadConfig();  // re-mask secrets from the saved file
+    } catch (e) {
+        setConfigStatus('Save failed: ' + e, 'fail');
+    }
+}
+
+async function testConnection() {
+    setConfigStatus('Testing…', '');
+    const list = document.getElementById('preflightResults');
+    list.innerHTML = '';
+    try {
+        const res = await fetch('/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(collectConfig())
+        });
+        const data = await res.json();
+        for (const r of data.results) {
+            const li = document.createElement('li');
+            li.className = r.ok ? 'ok' : 'bad';
+            li.textContent = (r.ok ? '✓ ' : '✗ ') + r.name + ': ' + r.detail;
+            list.appendChild(li);
+        }
+        setConfigStatus(
+            data.ok ? 'All checks passed — ready to load data.' : 'Some checks failed.',
+            data.ok ? 'pass' : 'fail'
+        );
+    } catch (e) {
+        setConfigStatus('Test failed: ' + e, 'fail');
+    }
+}

@@ -3,16 +3,61 @@ import platform
 import subprocess
 import shlex
 from pathlib import Path
-from flask import Flask, render_template, request, Response
+from flask import Flask, render_template, request, Response, jsonify
+from dotenv import load_dotenv
+
+import config
+import preflight
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
 IS_WINDOWS = platform.system() == "Windows"
+ENV_PATH = str(BASE_DIR / ".env")
 
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# ---------------------------------------------------------------------------
+# Configuration drawer: read/write .env and test connectivity without leaving
+# the browser, so users don't have to hand-edit .env. Localhost demo only.
+# ---------------------------------------------------------------------------
+
+@app.route("/config", methods=["GET"])
+def get_config():
+    """Return the current .env values for the drawer, with secrets masked."""
+    env = config.read_env_file(ENV_PATH)
+    return jsonify(config.form_from_env(env))
+
+
+@app.route("/config", methods=["POST"])
+def save_config():
+    """Write drawer values back to .env. Masked/omitted secrets keep their stored value."""
+    data = request.json or {}
+    existing = config.read_env_file(ENV_PATH)
+    updates = config.env_updates_from_form(data, existing)
+    config.write_env_file(updates, ENV_PATH)
+    # Refresh this process's env so a subsequent /test-connection sees the new values;
+    # scripts launched via /run read .env themselves.
+    load_dotenv(ENV_PATH, override=True)
+    return jsonify({"ok": True})
+
+
+@app.route("/test-connection", methods=["POST"])
+def test_connection():
+    """Run the readiness preflight against the posted (unsaved) form values, or the saved .env
+    if none were posted. Returns the structured check results as JSON."""
+    data = request.json or {}
+    if data:
+        env = config.env_updates_from_form(data, config.read_env_file(ENV_PATH))
+        settings = config.Settings.from_env_dict(env)
+    else:
+        load_dotenv(ENV_PATH, override=True)
+        settings = config.Settings.load()
+    results = preflight.run_checks(settings)
+    return jsonify({"results": results, "ok": preflight.all_ok(results)})
 
 
 @app.route("/run", methods=["POST"])
