@@ -69,6 +69,11 @@ class Settings(BaseModel):
     vector_dimensions: Optional[int] = None
     hf_token: Optional[str] = None
 
+    # Agent Memory (phase 2): base URL of the couchbase-agent-memory server the app talks to.
+    # Defaults to a locally-run container on host port 8090 (app.py already uses 8080); repoint to
+    # the Capella-hosted endpoint when available.
+    agent_memory_base_url: str = "http://localhost:8090"
+
     # Per-invocation CLI overrides (highest precedence)
     provider_override: Optional[str] = None
     model_override: Optional[str] = None
@@ -94,6 +99,7 @@ class Settings(BaseModel):
             openai_chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
             vector_dimensions=_as_int(os.getenv("VECTOR_DIMENSIONS")),
             hf_token=os.getenv("HF_TOKEN") or None,
+            agent_memory_base_url=os.getenv("AGENT_MEMORY_BASE_URL", "http://localhost:8090"),
             provider_override=provider,
             model_override=model,
             dimensions_override=dimensions,
@@ -175,6 +181,7 @@ ENV_KEYS = [
     "OPENAI_CHAT_MODEL",
     "OPENAI_BASE_URL",
     "HF_TOKEN",
+    "AGENT_MEMORY_BASE_URL",
 ]
 
 # Keys whose values should be masked when displayed back (e.g. in the web UI).

@@ -247,6 +247,74 @@ A failed check tells you exactly what to fix (unreachable cluster → check the 
 
 > The web UI writes secrets to `.env` on Save and executes commands locally with no authentication — only run it on `localhost` for a trusted, local demo.
 
+# (Optional) Set up Agent Memory — AI Data Plane
+
+> This is only needed for the **AI Data Plane** features of the demo (agent memory on top of RAG). You can skip it and run the plain RAG demo without it. A Capella-hosted Agent Memory endpoint is coming; until then you run the server locally alongside `app.py`.
+
+Agent Memory runs as a **Docker container** next to the app and stores its data in your Couchbase cluster. The app talks to it over HTTP (`AGENT_MEMORY_BASE_URL`, default `http://localhost:8090`). We map it to host port **8090** because the web UI (`app.py`) already uses **8080**.
+
+## 1. Create its scope and collections in the cluster
+
+The memory server uses a fixed scope `agentmemory` with three collections. Create them in your bucket (Query Workbench):
+
+```sql
+CREATE SCOPE `vectorSearchDemo`.`agentmemory` IF NOT EXISTS;
+CREATE COLLECTION `vectorSearchDemo`.`agentmemory`.`users`    IF NOT EXISTS;
+CREATE COLLECTION `vectorSearchDemo`.`agentmemory`.`sessions` IF NOT EXISTS;
+CREATE COLLECTION `vectorSearchDemo`.`agentmemory`.`memory`   IF NOT EXISTS;
+```
+
+(The server may not auto-create these; creating them up front avoids first-run errors.)
+
+## 2. Configure the container
+
+The container reads its own `AGENTMEMORY_*` variables (see `.env.sample`). Mirror your Couchbase credentials; it also makes its own OpenAI calls for memory embeddings/extraction, so it reuses `OPENAI_API_KEY`:
+
+```env
+AGENTMEMORY_CONN_STRING=couchbases://cb.xxxxxxxx.cloud.couchbase.com
+AGENTMEMORY_USERNAME=your-db-user
+AGENTMEMORY_PASSWORD=your-db-password
+AGENTMEMORY_BUCKET=vectorSearchDemo
+AGENTMEMORY_EMBEDDING_MODEL=text-embedding-3-small
+AGENTMEMORY_LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=sk-...
+```
+
+## 3. Run the server
+
+For Capella (`couchbases://`, TLS), download your cluster's CA certificate and mount it. Use the image tag for your CPU: `amd64` (Intel) or `arm64` (Apple Silicon / Graviton):
+
+```bash
+docker run -d \
+  --name agentmemory-server \
+  --env-file .env \
+  -p 8090:8080 \
+  -p 9090:9090 \
+  -v "$(pwd)/ca.pem:/app/certs/ca.pem:ro" \
+  --restart unless-stopped \
+  agentmemory-server:arm64
+```
+
+The container listens on 8080 internally; `-p 8090:8080` publishes it on host port **8090** (so it doesn't clash with `app.py` on 8080). **9090** exposes metrics.
+
+## 4. Verify it's healthy
+
+```bash
+curl -s http://localhost:8090/health
+```
+
+or from Python:
+
+```python
+from agentmemory import AgentMemoryClient   # pip install couchbase-agent-memory
+with AgentMemoryClient(base_url="http://localhost:8090") as client:
+    print(client.health_ping().overall_status.value)
+```
+
+Once it reports healthy, point the app at it via `AGENT_MEMORY_BASE_URL` in `.env` (default `http://localhost:8090` already works for the local container above).
+
+> Notes verified against the live server as the integration is built: the exact default/configurable port, whether the server auto-creates the `agentmemory` collections, and the full `/health` response shape. The steps above use the manual-create path to be safe.
+
 # Step 1: Loading the data
 
 The data must first be loaded into Couchbase. The `load.py` script will load data into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
