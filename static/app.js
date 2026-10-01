@@ -80,6 +80,26 @@ function embeddingModel() {
     return el ? el.value.trim() : '';
 }
 
+// The configured bucket name, kept in sync with .env (COUCHBASE_BUCKET) so the generated
+// commands target whatever bucket the user actually created — not a hardcoded default.
+let demoBucket = 'vectorSearchDemo';
+
+function bucketName() {
+    return demoBucket || 'vectorSearchDemo';
+}
+
+// Load the configured bucket from the backend on startup (and refresh it after a config save).
+async function refreshBucket() {
+    try {
+        const res = await fetch('/config');
+        const c = await res.json();
+        if (c && c.bucket) demoBucket = c.bucket;
+    } catch (e) {
+        /* keep the default if the backend isn't reachable */
+    }
+}
+document.addEventListener('DOMContentLoaded', refreshBucket);
+
 // Map a base (local) collection name to the collection for the selected provider.
 // OpenAI (1536-dim) data lives in a parallel "<base>_openai" collection.
 function collectionFor(base) {
@@ -114,7 +134,7 @@ function setLoadCmdComposite() {
     const collection = collectionFor('emails');
     const cmd = `python load.py ` +
                 `--data data/dataset.csv --text-fields subject message_body ` +
-                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--bucket ${bucketName()} --scope _default --collection ${collection} ` +
                 `--copy-fields subject sender receiver message_body ` +
                 `--limit 5 --id-field sender timestamp`;
     setLoadCmd(withEmbeddingFlags(cmd));
@@ -124,7 +144,7 @@ function setLoadCmdHyperscale() {
     const collection = collectionFor('movies');
     const cmd = `python load.py ` +
                 `--data data/wiki_movie_plots_deduped.csv --text-fields Plot ` +
-                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--bucket ${bucketName()} --scope _default --collection ${collection} ` +
                 `--copy-fields Title "Release Year" Director ` +
                 `--limit 5 --id-field Title "Release Year"`;
     setLoadCmd(withEmbeddingFlags(cmd));
@@ -134,7 +154,7 @@ function setLoadCmdHybrid() {
     const collection = collectionFor('yelp');
     const cmd = `python load.py ` +
                 `--data data/yelp_academic_dataset_business.json --text-fields categories ` +
-                `--bucket vectorSearchDemo --scope _default --collection ${collection} ` +
+                `--bucket ${bucketName()} --scope _default --collection ${collection} ` +
                 `--copy-fields latitude longitude name ` +
                 `--limit 5 --id-field business_id`;
     setLoadCmd(withEmbeddingFlags(cmd));
@@ -152,7 +172,7 @@ function setRagCmdComposite() {
     const collection = collectionFor('emails');
 
     let cmd = `python ragComposite.py ` +
-              `--bucket vectorSearchDemo ` +
+              `--bucket ${bucketName()} ` +
               `--scope _default ` +
               `--collection ${collection}`;
 
@@ -182,7 +202,7 @@ function setRagCmdHyperscale() {
     const collection = collectionFor('movies');
 
     let cmd = `python ragHyperscale.py ` +
-              `--bucket vectorSearchDemo ` +
+              `--bucket ${bucketName()} ` +
               `--scope _default ` +
               `--collection ${collection}`;
 
@@ -210,7 +230,7 @@ function setRagCmdHybrid() {
     const radius = document.getElementById('hybridRadius').value.trim();
 
     let cmd = `python ragHybrid.py ` +
-              `--bucket vectorSearchDemo ` +
+              `--bucket ${bucketName()} ` +
               `--scope _default ` +
               `--collection ${collection} ` +
               `--index-name ${indexName}`;
@@ -253,6 +273,7 @@ async function loadConfig() {
     document.getElementById('cfgUsername').value = c.username || '';
     document.getElementById('cfgPassword').value = c.password || '';   // masked
     document.getElementById('cfgBucket').value = c.bucket || '';
+    if (c.bucket) demoBucket = c.bucket;   // keep generated commands in sync
     document.getElementById('cfgProvider').value = c.provider || 'local';
     document.getElementById('cfgModel').value = c.model || '';
     document.getElementById('cfgDimensions').value = c.dimensions || '';
