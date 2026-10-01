@@ -251,11 +251,13 @@ A failed check tells you exactly what to fix (unreachable cluster → check the 
 
 > This is only needed for the **AI Data Plane** features of the demo (agent memory on top of RAG). You can skip it and run the plain RAG demo without it. A Capella-hosted Agent Memory endpoint is coming; until then you run the server locally alongside `app.py`.
 
-Agent Memory runs as a **Docker container** next to the app and stores its data in your Couchbase cluster. The app talks to it over HTTP (`AGENT_MEMORY_BASE_URL`, default `http://localhost:8090`). We map it to host port **8090** because the web UI (`app.py`) already uses **8080**.
+This repo ships a lightweight, **native** Agent Memory server (`memory_server.py`) — no Docker. It runs next to `app.py`, stores its data in your Couchbase cluster, and is driven by the real `couchbase-agent-memory` SDK (`AgentMemoryClient`). The app talks to it over HTTP (`AGENT_MEMORY_BASE_URL`, default `http://localhost:8090` — 8090 because the web UI uses 8080).
+
+> The native server implements the SDK's user/session/memory API and recalls memories by vector similarity on OpenAI embeddings. It intentionally does **not** replicate the official server's background LLM "fact extraction" — it stores conversation turns and recalls the most relevant ones. When the Couchbase-hosted Agent Memory endpoint is available, just point `AGENT_MEMORY_BASE_URL` at it — the same SDK calls work unchanged. An optional path for running the official container instead is at the end of this section.
 
 ## 1. Create its scope and collections in the cluster
 
-The memory server uses a fixed scope `agentmemory` with three collections. Create them in your bucket (Query Workbench):
+The server uses a fixed scope `agentmemory` with three collections. Create them in your bucket (Query Workbench):
 
 ```sql
 CREATE SCOPE `vectorSearchDemo`.`agentmemory` IF NOT EXISTS;
@@ -264,56 +266,42 @@ CREATE COLLECTION `vectorSearchDemo`.`agentmemory`.`sessions` IF NOT EXISTS;
 CREATE COLLECTION `vectorSearchDemo`.`agentmemory`.`memory`   IF NOT EXISTS;
 ```
 
-(The server may not auto-create these; creating them up front avoids first-run errors.)
+## 2. Run the native server
 
-## 2. Configure the container
-
-The container reads its own `AGENTMEMORY_*` variables (see `.env.sample`). Mirror your Couchbase credentials; it also makes its own OpenAI calls for memory embeddings/extraction, so it reuses `OPENAI_API_KEY`:
-
-```env
-AGENTMEMORY_CONN_STRING=couchbases://cb.xxxxxxxx.cloud.couchbase.com
-AGENTMEMORY_USERNAME=your-db-user
-AGENTMEMORY_PASSWORD=your-db-password
-AGENTMEMORY_BUCKET=vectorSearchDemo
-AGENTMEMORY_EMBEDDING_MODEL=text-embedding-3-small
-AGENTMEMORY_LLM_MODEL=gpt-4o-mini
-OPENAI_API_KEY=sk-...
-```
-
-## 3. Run the server
-
-For Capella (`couchbases://`, TLS), download your cluster's CA certificate and mount it. Use the image tag for your CPU: `amd64` (Intel) or `arm64` (Apple Silicon / Graviton):
+It reads `AGENTMEMORY_*` from `.env` and falls back to your `COUCHBASE_*` / `OPENAI_API_KEY`, so if your `.env` is already configured there's nothing extra to set:
 
 ```bash
-docker run -d \
-  --name agentmemory-server \
-  --env-file .env \
-  -p 8090:8080 \
-  -p 9090:9090 \
-  -v "$(pwd)/ca.pem:/app/certs/ca.pem:ro" \
-  --restart unless-stopped \
-  agentmemory-server:arm64
+python memory_server.py          # serves http://localhost:8090
 ```
 
-The container listens on 8080 internally; `-p 8090:8080` publishes it on host port **8090** (so it doesn't clash with `app.py` on 8080). **9090** exposes metrics.
-
-## 4. Verify it's healthy
+## 3. Verify it's healthy
 
 ```bash
 curl -s http://localhost:8090/health
 ```
 
-or from Python:
+or from Python (the real SDK):
 
 ```python
 from agentmemory import AgentMemoryClient   # pip install couchbase-agent-memory
 with AgentMemoryClient(base_url="http://localhost:8090") as client:
-    print(client.health_ping().overall_status.value)
+    print(client.health_ping().overall_status.value)   # -> healthy
 ```
 
-Once it reports healthy, point the app at it via `AGENT_MEMORY_BASE_URL` in `.env` (default `http://localhost:8090` already works for the local container above).
+The app picks it up via `AGENT_MEMORY_BASE_URL` in `.env` (default `http://localhost:8090` already matches).
 
-> Notes verified against the live server as the integration is built: the exact default/configurable port, whether the server auto-creates the `agentmemory` collections, and the full `/health` response shape. The steps above use the manual-create path to be safe.
+## (Optional) Use the official Agent Memory container instead
+
+If you have access to the official `agentmemory-server` image (obtained via your Couchbase download portal — it's a gated artifact, `docker load`ed from a tarball, not a public pull) and want the full server with background fact-extraction, run it instead of `memory_server.py`. It also reads the `AGENTMEMORY_*` variables and listens on 8080 internally:
+
+```bash
+docker run -d --name agentmemory-server --env-file .env \
+  -p 8090:8080 -p 9090:9090 \
+  -v "$(pwd)/ca.pem:/app/certs/ca.pem:ro" \
+  --restart unless-stopped agentmemory-server:arm64   # or :amd64
+```
+
+Either way, point `AGENT_MEMORY_BASE_URL` at `http://localhost:8090`.
 
 # Step 1: Loading the data
 
