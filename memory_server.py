@@ -38,6 +38,20 @@ DEFAULT_RELEVANT_K = 5
 app = Flask(__name__)
 _STARTED = time.time()
 
+# Live, in-process usage counters so the demo's status overlay can show real activity
+# (memories written, searches run, context served from memory). Reset when the server restarts.
+STATS = {
+    "memory_added": 0,          # memory blocks stored
+    "searches": 0,              # search_memory calls
+    "blocks_recalled": 0,       # blocks returned by searches
+    "chars_served_from_memory": 0,  # characters of recalled content (for a tokens-saved estimate)
+}
+
+
+def _est_tokens(chars: int) -> int:
+    """Rough token estimate (~4 chars/token). Labeled as an estimate in the UI."""
+    return round(chars / 4)
+
 
 def _env(name: str, *fallbacks: str, default: str = "") -> str:
     for key in (name, *fallbacks):
@@ -190,6 +204,16 @@ def health_optional():
     # We don't run the async batch processor (synchronous add_memory) — "not_initialized" is
     # treated as OK by the SDK for optional components.
     return jsonify({"status": "not_initialized"})
+
+
+@app.get("/stats")
+def stats():
+    """Live usage counters for the demo's status overlay (not part of the SDK API)."""
+    return jsonify({
+        **STATS,
+        "tokens_served_from_memory_est": _est_tokens(STATS["chars_served_from_memory"]),
+        "uptime_seconds": round(time.time() - _STARTED, 1),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +405,7 @@ def add_memory(user_id, session_id):
 
     sess.setdefault("blocks", []).extend(block_ids)
     _coll(COLL_SESSIONS).upsert(skey, sess)
+    STATS["memory_added"] += len(block_ids)
     return jsonify({"message": f"added {len(block_ids)} block(s)", "accepted_count": len(block_ids),
                     "block_ids": block_ids, "rejected_count": 0, "rejected_details": None})
 
@@ -436,6 +461,11 @@ def search_memory(user_id, session_id):
         blocks.sort(key=lambda b: b.get("ingested_at", ""), reverse=True)
         result = [_block_public(b) for b in blocks[:relevant_k]]
 
+    STATS["searches"] += 1
+    STATS["blocks_recalled"] += len(result)
+    STATS["chars_served_from_memory"] += sum(
+        len(_message_text(b["message"]) if b.get("message") else (b.get("fact") or "")) for b in result
+    )
     return jsonify({"memory_blocks": result, "count": len(result)})
 
 

@@ -70,9 +70,11 @@ class Settings(BaseModel):
     hf_token: Optional[str] = None
 
     # Agent Memory (phase 2): base URL of the couchbase-agent-memory server the app talks to.
-    # Defaults to a locally-run container on host port 8090 (app.py already uses 8080); repoint to
+    # Defaults to a locally-run server on host port 8090 (app.py already uses 8080); repoint to
     # the Capella-hosted endpoint when available.
     agent_memory_base_url: str = "http://localhost:8090"
+    # Global toggle: when true, RAG chats use the AI Data Plane (agent memory) features.
+    ai_dataplane_enabled: bool = False
 
     # Per-invocation CLI overrides (highest precedence)
     provider_override: Optional[str] = None
@@ -100,6 +102,8 @@ class Settings(BaseModel):
             vector_dimensions=_as_int(os.getenv("VECTOR_DIMENSIONS")),
             hf_token=os.getenv("HF_TOKEN") or None,
             agent_memory_base_url=os.getenv("AGENT_MEMORY_BASE_URL", "http://localhost:8090"),
+            ai_dataplane_enabled=(os.getenv("AI_DATAPLANE_ENABLED", "") or "").strip().lower()
+            in ("1", "true", "yes", "on"),
             provider_override=provider,
             model_override=model,
             dimensions_override=dimensions,
@@ -182,6 +186,7 @@ ENV_KEYS = [
     "OPENAI_BASE_URL",
     "HF_TOKEN",
     "AGENT_MEMORY_BASE_URL",
+    "AI_DATAPLANE_ENABLED",
 ]
 
 # Keys whose values should be masked when displayed back (e.g. in the web UI).

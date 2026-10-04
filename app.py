@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 import config
 import preflight
+import dataplane
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
@@ -58,6 +59,28 @@ def test_connection():
         settings = config.Settings.load()
     results = preflight.run_checks(settings)
     return jsonify({"results": results, "ok": preflight.all_ok(results)})
+
+
+# ---------------------------------------------------------------------------
+# AI Data Plane (phase 2): live status for the diagram overlay + global toggle.
+# ---------------------------------------------------------------------------
+
+@app.route("/dataplane/status", methods=["GET"])
+def dataplane_status():
+    """Live status/usage for the diagram overlay (memory active/used/tokens-served + toggle)."""
+    load_dotenv(ENV_PATH, override=True)
+    return jsonify(dataplane.status(config.Settings.load()))
+
+
+@app.route("/dataplane/toggle", methods=["POST"])
+def dataplane_toggle():
+    """Enable/disable the AI Data Plane for RAG. Persists AI_DATAPLANE_ENABLED to .env so the
+    RAG scripts (run as subprocesses) pick it up."""
+    data = request.json or {}
+    enabled = bool(data.get("enabled"))
+    config.write_env_file({"AI_DATAPLANE_ENABLED": "true" if enabled else "false"}, ENV_PATH)
+    load_dotenv(ENV_PATH, override=True)
+    return jsonify({"ok": True, "enabled": enabled})
 
 
 @app.route("/run", methods=["POST"])
