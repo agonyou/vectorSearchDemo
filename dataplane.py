@@ -16,6 +16,24 @@ from typing import List, Optional, Tuple
 import config
 
 DEFAULT_RECALL_K = 5
+DEFAULT_USER = "demo-user"  # single demo user; sessions separate conversations
+
+
+def augment_context(settings: "config.Settings", session_id: str, prompt: str, context: str):
+    """If the AI Data Plane is enabled, prepend recalled memory to the RAG context and return
+    (new_context, n_recalled). A no-op (returns the original context, 0) when disabled or on error."""
+    if not settings.ai_dataplane_enabled:
+        return context, 0
+    mem, n = recall(settings, DEFAULT_USER, session_id, prompt)
+    if mem:
+        context = f"Relevant memory from earlier:\n{mem}\n\n---\n\n{context}"
+    return context, n
+
+
+def maybe_remember(settings: "config.Settings", session_id: str, prompt: str, answer: str) -> None:
+    """Store this Q&A turn as memory when the AI Data Plane is enabled (best-effort)."""
+    if settings.ai_dataplane_enabled:
+        remember(settings, DEFAULT_USER, session_id, prompt, answer)
 
 
 def _client(settings: "config.Settings"):

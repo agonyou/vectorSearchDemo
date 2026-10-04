@@ -30,6 +30,7 @@ from couchbase.exceptions import DocumentNotFoundException
 load_dotenv()
 
 import config
+import dataplane
 
 # Only force HF fully offline when no HF_TOKEN is provided. With a token, allow authenticated
 # online access (higher rate limits, #6); without one, offline avoids the per-run cache
@@ -311,6 +312,12 @@ def parse_args():
         help="FTS vector num_candidates — the recall/latency knob (analogue of IVF nprobes). "
              "Higher = better recall, slower. Omit to default to --limit.",
     )
+    parser.add_argument(
+        "--session",
+        default="default",
+        help="Agent-memory session id — groups a conversation. Only used when the AI Data Plane "
+             "is enabled (AI_DATAPLANE_ENABLED); recalls prior turns and remembers this one.",
+    )
 
     return parser.parse_args()
 
@@ -392,6 +399,10 @@ def main():
 
     context = "\n\n---\n\n".join(formatted_chunks)
 
+    context, n_mem = dataplane.augment_context(CFG, args.session, inputs["prompt"], context)
+    if n_mem:
+        LOG.info("AI Data Plane: recalled %d memory block(s) from session '%s'", n_mem, args.session)
+
     print("\n=== Context to Augment with ===\n")
     print(context)
 
@@ -399,6 +410,8 @@ def main():
 
     print("\n=== Answer ===\n")
     print(answer)
+
+    dataplane.maybe_remember(CFG, args.session, inputs["prompt"], answer)
 
 
 if __name__ == "__main__":

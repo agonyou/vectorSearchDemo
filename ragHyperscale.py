@@ -27,6 +27,7 @@ from openai import OpenAI
 load_dotenv()
 
 import config
+import dataplane
 
 # Only force HF fully offline when no HF_TOKEN is provided. With a token, allow authenticated
 # online access (higher rate limits, #6); without one, offline avoids the per-run cache
@@ -280,6 +281,12 @@ def parse_args():
         help="IVF probe count for APPROX_VECTOR_DISTANCE (recall vs latency). Higher = more index "
              "cells scanned = better recall, slower. Needs enough loaded data to show a difference.",
     )
+    parser.add_argument(
+        "--session",
+        default="default",
+        help="Agent-memory session id — groups a conversation. Only used when the AI Data Plane "
+             "is enabled (AI_DATAPLANE_ENABLED); recalls prior turns and remembers this one.",
+    )
 
     return parser.parse_args()
 
@@ -336,6 +343,10 @@ def main():
 
     context = "\n\n---\n\n".join(chunks)
 
+    context, n_mem = dataplane.augment_context(CFG, args.session, prompt, context)
+    if n_mem:
+        LOG.info("AI Data Plane: recalled %d memory block(s) from session '%s'", n_mem, args.session)
+
     print("\n=== Context to Augment with ===\n")
     print(context)
 
@@ -343,6 +354,8 @@ def main():
 
     print("\n=== Answer ===\n")
     print(answer)
+
+    dataplane.maybe_remember(CFG, args.session, prompt, answer)
 
 
 if __name__ == "__main__":
