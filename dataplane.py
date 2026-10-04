@@ -17,14 +17,36 @@ import config
 
 DEFAULT_RECALL_K = 5
 DEFAULT_USER = "demo-user"  # single demo user; sessions separate conversations
+# A recalled memory at/above this cosine is treated as "the same question" — we answer from it and
+# skip the vector search + LLM entirely (the measurable "faster on repeats" win). Configurable.
+DEFAULT_HIT_THRESHOLD = 0.9
 
 
-def augment_context(settings: "config.Settings", session_id: str, prompt: str, context: str):
+def est_tokens(text: str) -> int:
+    """Rough token estimate (~4 chars/token)."""
+    return round(len(text or "") / 4)
+
+
+def print_timings(timings: "dict", extra: str = "") -> None:
+    """Print a per-stage timing breakdown line for the CLI demo."""
+    if not timings:
+        return
+    parts = " · ".join(f"{k} {v:.2f}s" for k, v in timings.items())
+    total = sum(timings.values())
+    line = f"\nTiming: {parts} · total {total:.2f}s"
+    if extra:
+        line += f"\n{extra}"
+    print(line)
+
+
+def augment_context(settings: "config.Settings", session_id: str, prompt: str, context: str,
+                    min_score: Optional[float] = None):
     """If the AI Data Plane is enabled, prepend recalled memory to the RAG context and return
-    (new_context, n_recalled). A no-op (returns the original context, 0) when disabled or on error."""
+    (new_context, n_recalled). A no-op (returns the original context, 0) when disabled or on error.
+    min_score gates recall by relevance (None = server default)."""
     if not settings.ai_dataplane_enabled:
         return context, 0
-    mem, n = recall(settings, DEFAULT_USER, session_id, prompt)
+    mem, n = recall(settings, DEFAULT_USER, session_id, prompt, min_score=min_score)
     if mem:
         context = f"Relevant memory from earlier:\n{mem}\n\n---\n\n{context}"
     return context, n
@@ -54,27 +76,63 @@ def ensure_session(client, user_id: str, session_id: str) -> None:
         pass
 
 
-def recall(settings: "config.Settings", user_id: str, session_id: str, query: str,
-           k: int = DEFAULT_RECALL_K) -> Tuple[str, int]:
-    """Return (context_text, n_blocks) of relevant prior memory for the query. Empty on any error."""
+def recall_blocks(settings: "config.Settings", user_id: str, session_id: str, query: str,
+                  k: int = DEFAULT_RECALL_K, min_score: Optional[float] = None) -> List[dict]:
+    """Return relevant memory blocks as [{text, user_content, assistant_content, score}] (ranked).
+    Empty list on any error. min_score gates by cosine relevance (None = memory server default)."""
     try:
         with _client(settings) as client:
             ensure_session(client, user_id, session_id)
             sess = client.get_user(user_id).get_session(session_id)
-            res = sess.search_memory(query=query, filters={"relevant_k": k})
-            lines = []
+            filters = {"relevant_k": k}
+            if min_score is not None:
+                filters["min_score"] = min_score
+            res = sess.search_memory(query=query, filters=filters)
+            out = []
             for b in res.memory_blocks:
-                if b.message:
-                    txt = " ".join(x for x in (b.message.user_content, b.message.assistant_content) if x)
-                elif b.fact:
-                    txt = b.fact
-                else:
-                    continue
-                if txt.strip():
-                    lines.append(f"- {txt.strip()}")
-            return ("\n".join(lines), len(lines))
+                uc = b.message.user_content if b.message else ""
+                ac = b.message.assistant_content if b.message else ""
+                text = (" ".join(x for x in (uc, ac) if x)) if b.message else (b.fact or "")
+                if text.strip():
+                    out.append({"text": text.strip(), "user_content": uc or "",
+                                "assistant_content": ac or "", "score": b.rel_score or 0.0})
+            return out
     except Exception:  # noqa: BLE001 - memory is best-effort; never break RAG
-        return ("", 0)
+        return []
+
+
+def recall(settings: "config.Settings", user_id: str, session_id: str, query: str,
+           k: int = DEFAULT_RECALL_K, min_score: Optional[float] = None) -> Tuple[str, int]:
+    """Return (context_text, n_blocks) of relevant prior memory for the query."""
+    blocks = recall_blocks(settings, user_id, session_id, query, k, min_score)
+    return ("\n".join(f"- {b['text']}" for b in blocks), len(blocks))
+
+
+def memory_phase(settings: "config.Settings", session_id: str, prompt: str,
+                 min_score: Optional[float] = None, hit_threshold: Optional[float] = None) -> dict:
+    """Memory-first lookup for a RAG turn. Returns a dict:
+      enabled, blocks, top_score, hit (bool), hit_answer (str|None), context (str), recall_seconds.
+    A 'hit' means the top memory is essentially the same question (score >= hit_threshold) and has a
+    stored answer — the caller can short-circuit the vector search + LLM and answer from memory."""
+    import time
+    result = {"enabled": settings.ai_dataplane_enabled, "blocks": [], "top_score": 0.0,
+              "hit": False, "hit_answer": None, "context": "", "recall_seconds": 0.0}
+    if not settings.ai_dataplane_enabled:
+        return result
+    if hit_threshold is None:
+        hit_threshold = DEFAULT_HIT_THRESHOLD
+    t0 = time.time()
+    blocks = recall_blocks(settings, DEFAULT_USER, session_id, prompt, min_score=min_score)
+    result["recall_seconds"] = time.time() - t0
+    result["blocks"] = blocks
+    if blocks:
+        result["top_score"] = blocks[0]["score"]
+        result["context"] = "\n".join(f"- {b['text']}" for b in blocks)
+        top = blocks[0]
+        if top["score"] >= hit_threshold and top["assistant_content"].strip():
+            result["hit"] = True
+            result["hit_answer"] = top["assistant_content"].strip()
+    return result
 
 
 def remember(settings: "config.Settings", user_id: str, session_id: str,

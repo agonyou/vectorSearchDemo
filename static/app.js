@@ -88,6 +88,34 @@ function bucketName() {
     return demoBucket || 'vectorSearchDemo';
 }
 
+// Current agent-memory conversation session for RAG runs. "New session" starts a fresh one so
+// memories from a prior demo topic aren't recalled.
+let ragSession = 'default';
+
+function newSession() {
+    ragSession = 'sess-' + Date.now().toString(36);
+    const el = document.getElementById('dpSession');
+    if (el) el.textContent = ragSession;
+    const msg = document.getElementById('dpToggleMsg');
+    if (msg) { msg.textContent = 'Started a fresh session.'; msg.className = 'dp-msg'; }
+}
+
+// Memory recall relevance threshold (0-1) from the UI; blank = memory server default.
+function memoryMinScore() {
+    const el = document.getElementById('dpMinScore');
+    return el ? el.value.trim() : '';
+}
+
+// Append the agent-memory session and (optional) recall threshold to a RAG command.
+function withRagSessionFlags(cmd) {
+    cmd += ` --session ${ragSession}`;
+    const ms = memoryMinScore();
+    if (ms !== '') {
+        cmd += ` --memory-min-score ${ms}`;
+    }
+    return cmd;
+}
+
 // Load the configured bucket from the backend on startup (and refresh it after a config save).
 async function refreshBucket() {
     try {
@@ -193,7 +221,7 @@ function setRagCmdComposite() {
         cmd += ` --nprobes ${nprobes}`;
     }
 
-    setRagCmd(withEmbeddingFlags(cmd));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
 }
 
 function setRagCmdHyperscale() {
@@ -215,7 +243,7 @@ function setRagCmdHyperscale() {
         cmd += ` --nprobes ${nprobes}`;
     }
 
-    setRagCmd(withEmbeddingFlags(cmd));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
 }
 
 function setRagCmdHybrid() {
@@ -248,7 +276,7 @@ function setRagCmdHybrid() {
         cmd += ` --num-candidates ${numCandidates}`;
     }
 
-    setRagCmd(withEmbeddingFlags(cmd));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
 }
 
 // ---------------------------------------------------------------------------

@@ -34,6 +34,10 @@ COLL_USERS = "users"
 COLL_SESSIONS = "sessions"
 COLL_MEMORY = "memory"
 DEFAULT_RELEVANT_K = 5
+# Minimum cosine similarity for a memory to be recalled. Repeats (~0.9+) and related questions
+# (~0.3-0.6) pass; unrelated questions (~0.05) are filtered out so they don't inject noise.
+# Override per deployment with AGENTMEMORY_MIN_SCORE, or per request via filters.min_score.
+DEFAULT_MIN_SCORE = float(os.getenv("AGENTMEMORY_MIN_SCORE", "0.2"))
 
 app = Flask(__name__)
 _STARTED = time.time()
@@ -396,9 +400,11 @@ def add_memory(user_id, session_id):
 
     block_ids: List[str] = []
     for item in messages:
-        text = _message_text(item)
+        # Embed on the USER question so a repeat/related question matches closely (the stored answer
+        # is still kept for the short-circuit return). Falls back to the full turn if no user text.
+        embed_text = (item.get("user_content") or "").strip() or _message_text(item)
         block_ids.append(_store_block(user_id, session_id, message=item, fact=None,
-                                      text=text, annotations=annotations))
+                                      text=embed_text, annotations=annotations))
     for fact in facts:
         block_ids.append(_store_block(user_id, session_id, message=None, fact=fact,
                                       text=fact, annotations=annotations))
@@ -448,6 +454,9 @@ def search_memory(user_id, session_id):
     filters = body.get("filters") or {}
     session_ids = filters.get("session_ids")
     relevant_k = filters.get("relevant_k") or DEFAULT_RELEVANT_K
+    min_score = filters.get("min_score")
+    if min_score is None:
+        min_score = DEFAULT_MIN_SCORE
 
     blocks = _collect_blocks(user_id, session_id, session_ids)
 
@@ -455,7 +464,8 @@ def search_memory(user_id, session_id):
         qvec = _embed(query)
         scored = [(b, _cosine(qvec, b["embedding"])) for b in blocks if b.get("embedding")]
         scored.sort(key=lambda x: x[1], reverse=True)
-        top = scored[:relevant_k]
+        # Keep only sufficiently-relevant blocks (repeats + related), capped at relevant_k.
+        top = [(b, s) for b, s in scored if s >= min_score][:relevant_k]
         result = [_block_public(b, rel_score=round(s, 4)) for b, s in top]
     else:
         blocks.sort(key=lambda b: b.get("ingested_at", ""), reverse=True)

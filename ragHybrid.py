@@ -318,6 +318,13 @@ def parse_args():
         help="Agent-memory session id — groups a conversation. Only used when the AI Data Plane "
              "is enabled (AI_DATAPLANE_ENABLED); recalls prior turns and remembers this one.",
     )
+    parser.add_argument(
+        "--memory-min-score",
+        type=float,
+        default=None,
+        help="Minimum cosine relevance (0-1) for recalling a memory. Higher = stricter; repeats and "
+             "closely-related questions still match. Omit to use the memory server's default.",
+    )
 
     return parser.parse_args()
 
@@ -375,12 +382,35 @@ def main():
     cfg = load_config_from_args(args, inputs)
     cluster = get_cluster()
 
+    prompt = inputs["prompt"]
+    timings = {}
+
+    # Memory-first: a near-duplicate question is answered from memory, skipping vector search + LLM.
+    mem = dataplane.memory_phase(CFG, args.session, prompt,
+                                 min_score=args.memory_min_score,
+                                 hit_threshold=args.memory_hit_threshold)
+    if mem["enabled"]:
+        timings["memory recall"] = mem["recall_seconds"]
+        LOG.info("AI Data Plane: recalled %d block(s), top score %.2f (session '%s')",
+                 len(mem["blocks"]), mem["top_score"], args.session)
+
+    if mem["hit"]:
+        print("\n=== Answer (from memory) ===\n")
+        print(mem["hit_answer"])
+        print(f"\n⚡ Served from memory in {mem['recall_seconds']:.2f}s (top score {mem['top_score']:.2f}) — "
+              f"skipped the vector search + LLM call (~{dataplane.est_tokens(mem['hit_answer'])} tokens of LLM output avoided).")
+        return
+
     LOG.info("Computing embedding")
-    embedding = compute_embedding(inputs["prompt"])
+    t = time.time()
+    embedding = compute_embedding(prompt)
+    timings["embed"] = time.time() - t
     preflight_dimensions(len(embedding), cfg.collection)
 
     LOG.info("Running hybrid vector query")
+    t = time.time()
     chunks = run_hybrid_query(cluster, cfg, embedding)
+    timings["vector query"] = time.time() - t
 
     if not chunks:
         print("\nNo matching context found.")
@@ -398,20 +428,21 @@ def main():
         return
 
     context = "\n\n---\n\n".join(formatted_chunks)
-
-    context, n_mem = dataplane.augment_context(CFG, args.session, inputs["prompt"], context)
-    if n_mem:
-        LOG.info("AI Data Plane: recalled %d memory block(s) from session '%s'", n_mem, args.session)
+    if mem["context"]:
+        context = f"Relevant memory from earlier:\n{mem['context']}\n\n---\n\n{context}"
 
     print("\n=== Context to Augment with ===\n")
     print(context)
 
-    answer = generate_with_llm(inputs["prompt"], context)
+    t = time.time()
+    answer = generate_with_llm(prompt, context)
+    timings["LLM"] = time.time() - t
 
     print("\n=== Answer ===\n")
     print(answer)
 
-    dataplane.maybe_remember(CFG, args.session, inputs["prompt"], answer)
+    dataplane.print_timings(timings, extra=f"LLM input ~{dataplane.est_tokens(context + prompt)} tokens (est)")
+    dataplane.maybe_remember(CFG, args.session, prompt, answer)
 
 
 if __name__ == "__main__":
