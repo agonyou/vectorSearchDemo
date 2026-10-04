@@ -109,10 +109,41 @@
             </section>
 
             <section id="content7">
-                Instead of loading and vectorizing data yourself, you can use AI Services to vectorize data
+                <div class="dataplane-controls">
+                    <label class="dp-switch">
+                        <input type="checkbox" id="dpToggle" onchange="toggleDataplane()" />
+                        <span>Use AI Data Plane for RAG chats</span>
+                    </label>
+                    <button type="button" onclick="refreshDataplane()">Refresh status</button>
+                    <span id="dpToggleMsg" class="dp-msg"></span>
+                </div>
+                <div class="dataplane-controls">
+                    <span class="dp-msg">Conversation session: <code id="dpSession">default</code></span>
+                    <button type="button" onclick="newSession()">New session</button>
+                    <span class="dp-msg">(starts a fresh conversation so prior memories aren't recalled)</span>
+                </div>
+                <div class="dataplane-controls">
+                    <label class="dp-msg" for="dpMinScore">Memory recall threshold (0–1):</label>
+                    <input type="number" id="dpMinScore" min="0" max="1" step="0.05" value="0.2" style="width:5rem" />
+                    <span class="dp-msg">higher = stricter; blank = server default. Repeats &amp; closely-related questions still match.</span>
+                </div>
+
+                <!-- Diagram with a live status overlay: each AI Data Plane capability shows
+                     active / used / usage counts / tokens served from memory. -->
+                <div class="diagram-wrap">
+                    <img class="tab-image" src="/static/aiServicesScreenShot.png" alt="AI Services Vectorization" />
+                    <div id="dpOverlay" class="dp-overlay">
+                        <div class="dp-pill" data-cap="agent_memory">
+                            <span class="dp-dot" id="am-dot"></span>
+                            <span class="dp-name">Agent Memory</span>
+                            <span class="dp-stat" id="am-stat">checking…</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p>Instead of loading and vectorizing data yourself, you can use AI Services to vectorize data
                 and store data during loading and updating, automatically, using a private hosted model or external model.
-                See the <a href="https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html" target="_blank">AI Services documentation</a> for more details.
-                <img class="tab-image" src="/static/aiServicesScreenShot.png" alt="AI Services Vectorization" />
+                See the <a href="https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html" target="_blank">AI Services documentation</a> for more details.</p>
             </section>
         </div>
     </div>
@@ -165,6 +196,7 @@
 
     <button class="run" onclick="runRag()">Run</button>
     <span id="preflightRag" class="preflight-badge"></span>
+    <span id="memoryBadge" class="preflight-badge"></span>
 
 
     <textarea id="outputQuery" readonly></textarea>

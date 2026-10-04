@@ -11,7 +11,26 @@ async function runLoad() {
 }
 
 async function runRag() {
-    return runCommand('ragCmd', 'outputQuery', 'preflightRag');
+    return runCommand('ragCmd', 'outputQuery', 'preflightRag', 'memoryBadge');
+}
+
+// Watch the streamed RAG output for the AI Data Plane markers and show a badge:
+// a green "⚡ from memory" when a repeat short-circuits, else "full RAG" with the total time.
+function updateMemoryBadge(badge, text) {
+    if (!badge) return;
+    const hit = text.match(/Served from memory in ([\d.]+)s/);
+    if (hit) {
+        badge.textContent = '⚡ from memory · ' + hit[1] + 's';
+        badge.className = 'preflight-badge pass';
+        badge.dataset.settled = '1';
+        return;
+    }
+    if (badge.dataset.settled === '1') return;
+    const tot = text.match(/total ([\d.]+)s/);
+    if (tot) {
+        badge.textContent = 'full RAG · ' + tot[1] + 's';
+        badge.className = 'preflight-badge mem-full';
+    }
 }
 
 // Watch the streamed output for the scripts' preflight markers (#2) and reflect them
@@ -33,17 +52,16 @@ function updatePreflightBadge(badge, text) {
     }
 }
 
-async function runCommand(cmdInputId, outputId, badgeId) {
+async function runCommand(cmdInputId, outputId, badgeId, memBadgeId) {
     const cmd = document.getElementById(cmdInputId).value;
     const output = document.getElementById(outputId);
     const badge = badgeId ? document.getElementById(badgeId) : null;
+    const memBadge = memBadgeId ? document.getElementById(memBadgeId) : null;
 
     output.value = '';
     output.scrollTop = 0;
-    if (badge) {
-        badge.textContent = '';
-        badge.className = 'preflight-badge';
-        badge.dataset.settled = '0';
+    for (const b of [badge, memBadge]) {
+        if (b) { b.textContent = ''; b.className = 'preflight-badge'; b.dataset.settled = '0'; }
     }
 
     const res = await fetch('/run', {
@@ -63,6 +81,7 @@ async function runCommand(cmdInputId, outputId, badgeId) {
         output.value += chunk;
         output.scrollTop = output.scrollHeight;
         updatePreflightBadge(badge, output.value);
+        updateMemoryBadge(memBadge, output.value);
     }
 }
 
@@ -86,6 +105,34 @@ let demoBucket = 'vectorSearchDemo';
 
 function bucketName() {
     return demoBucket || 'vectorSearchDemo';
+}
+
+// Current agent-memory conversation session for RAG runs. "New session" starts a fresh one so
+// memories from a prior demo topic aren't recalled.
+let ragSession = 'default';
+
+function newSession() {
+    ragSession = 'sess-' + Date.now().toString(36);
+    const el = document.getElementById('dpSession');
+    if (el) el.textContent = ragSession;
+    const msg = document.getElementById('dpToggleMsg');
+    if (msg) { msg.textContent = 'Started a fresh session.'; msg.className = 'dp-msg'; }
+}
+
+// Memory recall relevance threshold (0-1) from the UI; blank = memory server default.
+function memoryMinScore() {
+    const el = document.getElementById('dpMinScore');
+    return el ? el.value.trim() : '';
+}
+
+// Append the agent-memory session and (optional) recall threshold to a RAG command.
+function withRagSessionFlags(cmd) {
+    cmd += ` --session ${ragSession}`;
+    const ms = memoryMinScore();
+    if (ms !== '') {
+        cmd += ` --memory-min-score ${ms}`;
+    }
+    return cmd;
 }
 
 // Load the configured bucket from the backend on startup (and refresh it after a config save).
@@ -193,7 +240,7 @@ function setRagCmdComposite() {
         cmd += ` --nprobes ${nprobes}`;
     }
 
-    setRagCmd(withEmbeddingFlags(cmd));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
 }
 
 function setRagCmdHyperscale() {
@@ -215,7 +262,7 @@ function setRagCmdHyperscale() {
         cmd += ` --nprobes ${nprobes}`;
     }
 
-    setRagCmd(withEmbeddingFlags(cmd));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
 }
 
 function setRagCmdHybrid() {
@@ -248,7 +295,7 @@ function setRagCmdHybrid() {
         cmd += ` --num-candidates ${numCandidates}`;
     }
 
-    setRagCmd(withEmbeddingFlags(cmd));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
 }
 
 // ---------------------------------------------------------------------------
@@ -361,3 +408,64 @@ async function testConnection() {
         if (btn) btn.disabled = false;
     }
 }
+
+// ---------------------------------------------------------------------------
+// AI Data Plane: diagram-tab status overlay + global RAG toggle.
+// ---------------------------------------------------------------------------
+
+async function refreshDataplane() {
+    try {
+        const res = await fetch('/dataplane/status');
+        const st = await res.json();
+        const toggle = document.getElementById('dpToggle');
+        if (toggle) toggle.checked = !!st.enabled;
+
+        const am = (st.capabilities && st.capabilities.agent_memory) || {};
+        const dot = document.getElementById('am-dot');
+        const stat = document.getElementById('am-stat');
+        if (dot) dot.className = 'dp-dot ' + (am.active ? 'on' : 'off');
+        if (stat) {
+            if (!am.active) {
+                stat.textContent = 'inactive — start memory_server.py';
+            } else if (am.used) {
+                stat.textContent = `active · ${am.memory_added} stored · ${am.searches} recalls · ~${am.tokens_served_from_memory_est} tokens served`;
+            } else {
+                stat.textContent = 'active · not used yet';
+            }
+        }
+    } catch (e) {
+        const stat = document.getElementById('am-stat');
+        if (stat) stat.textContent = 'status unavailable (is app.py running?)';
+    }
+}
+
+async function toggleDataplane() {
+    const toggle = document.getElementById('dpToggle');
+    const msg = document.getElementById('dpToggleMsg');
+    try {
+        const res = await fetch('/dataplane/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: toggle.checked })
+        });
+        const data = await res.json();
+        if (msg) {
+            msg.textContent = data.enabled ? 'RAG chats will use agent memory.' : 'RAG chats use plain RAG.';
+            msg.className = 'dp-msg ' + (data.enabled ? 'on' : '');
+        }
+        refreshDataplane();
+    } catch (e) {
+        if (msg) { msg.textContent = 'toggle failed'; msg.className = 'dp-msg fail'; }
+    }
+}
+
+// Poll status while the AI Services tab is selected (lightweight; only when visible).
+setInterval(() => {
+    const tab = document.getElementById('tab7');
+    if (tab && tab.checked) refreshDataplane();
+}, 5000);
+document.addEventListener('DOMContentLoaded', () => {
+    const tab = document.getElementById('tab7');
+    if (tab) tab.addEventListener('change', () => { if (tab.checked) refreshDataplane(); });
+    refreshDataplane();
+});
