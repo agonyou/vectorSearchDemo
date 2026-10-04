@@ -109,10 +109,31 @@
             </section>
 
             <section id="content7">
-                Instead of loading and vectorizing data yourself, you can use AI Services to vectorize data
+                <div class="dataplane-controls">
+                    <label class="dp-switch">
+                        <input type="checkbox" id="dpToggle" onchange="toggleDataplane()" />
+                        <span>Use AI Data Plane for RAG chats</span>
+                    </label>
+                    <button type="button" onclick="refreshDataplane()">Refresh status</button>
+                    <span id="dpToggleMsg" class="dp-msg"></span>
+                </div>
+
+                <!-- Diagram with a live status overlay: each AI Data Plane capability shows
+                     active / used / usage counts / tokens served from memory. -->
+                <div class="diagram-wrap">
+                    <img class="tab-image" src="/static/aiServicesScreenShot.png" alt="AI Services Vectorization" />
+                    <div id="dpOverlay" class="dp-overlay">
+                        <div class="dp-pill" data-cap="agent_memory">
+                            <span class="dp-dot" id="am-dot"></span>
+                            <span class="dp-name">Agent Memory</span>
+                            <span class="dp-stat" id="am-stat">checking…</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p>Instead of loading and vectorizing data yourself, you can use AI Services to vectorize data
                 and store data during loading and updating, automatically, using a private hosted model or external model.
-                See the <a href="https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html" target="_blank">AI Services documentation</a> for more details.
-                <img class="tab-image" src="/static/aiServicesScreenShot.png" alt="AI Services Vectorization" />
+                See the <a href="https://docs.couchbase.com/ai/build/vectorization-service/vectorize-structured-data-capella.html" target="_blank">AI Services documentation</a> for more details.</p>
             </section>
         </div>
     </div>

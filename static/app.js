@@ -361,3 +361,64 @@ async function testConnection() {
         if (btn) btn.disabled = false;
     }
 }
+
+// ---------------------------------------------------------------------------
+// AI Data Plane: diagram-tab status overlay + global RAG toggle.
+// ---------------------------------------------------------------------------
+
+async function refreshDataplane() {
+    try {
+        const res = await fetch('/dataplane/status');
+        const st = await res.json();
+        const toggle = document.getElementById('dpToggle');
+        if (toggle) toggle.checked = !!st.enabled;
+
+        const am = (st.capabilities && st.capabilities.agent_memory) || {};
+        const dot = document.getElementById('am-dot');
+        const stat = document.getElementById('am-stat');
+        if (dot) dot.className = 'dp-dot ' + (am.active ? 'on' : 'off');
+        if (stat) {
+            if (!am.active) {
+                stat.textContent = 'inactive — start memory_server.py';
+            } else if (am.used) {
+                stat.textContent = `active · ${am.memory_added} stored · ${am.searches} recalls · ~${am.tokens_served_from_memory_est} tokens served`;
+            } else {
+                stat.textContent = 'active · not used yet';
+            }
+        }
+    } catch (e) {
+        const stat = document.getElementById('am-stat');
+        if (stat) stat.textContent = 'status unavailable (is app.py running?)';
+    }
+}
+
+async function toggleDataplane() {
+    const toggle = document.getElementById('dpToggle');
+    const msg = document.getElementById('dpToggleMsg');
+    try {
+        const res = await fetch('/dataplane/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: toggle.checked })
+        });
+        const data = await res.json();
+        if (msg) {
+            msg.textContent = data.enabled ? 'RAG chats will use agent memory.' : 'RAG chats use plain RAG.';
+            msg.className = 'dp-msg ' + (data.enabled ? 'on' : '');
+        }
+        refreshDataplane();
+    } catch (e) {
+        if (msg) { msg.textContent = 'toggle failed'; msg.className = 'dp-msg fail'; }
+    }
+}
+
+// Poll status while the AI Services tab is selected (lightweight; only when visible).
+setInterval(() => {
+    const tab = document.getElementById('tab7');
+    if (tab && tab.checked) refreshDataplane();
+}, 5000);
+document.addEventListener('DOMContentLoaded', () => {
+    const tab = document.getElementById('tab7');
+    if (tab) tab.addEventListener('change', () => { if (tab.checked) refreshDataplane(); });
+    refreshDataplane();
+});

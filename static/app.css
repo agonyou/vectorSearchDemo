@@ -312,3 +312,45 @@ button:hover {
 }
 .preflight-results li.ok { background: #dcfce7; color: #166534; }
 .preflight-results li.bad { background: #fee2e2; color: #991b1b; }
+
+/* ---------- AI Data Plane: diagram overlay + toggle ---------- */
+.dataplane-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.dp-switch { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; cursor: pointer; }
+.dp-switch input { width: 1.1rem; height: 1.1rem; }
+.dp-msg { font-size: 0.85rem; color: #475569; }
+.dp-msg.on { color: #166534; }
+.dp-msg.fail { color: #991b1b; }
+
+.diagram-wrap { position: relative; display: inline-block; max-width: 100%; }
+.diagram-wrap .tab-image { display: block; max-width: 100%; height: auto; }
+
+.dp-overlay {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.dp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.dp-dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: #cbd5e1; flex: none; }
+.dp-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25); }
+.dp-dot.off { background: #ef4444; }
+.dp-name { font-weight: 600; }
+.dp-stat { color: #475569; }
