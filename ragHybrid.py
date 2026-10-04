@@ -325,6 +325,13 @@ def parse_args():
         help="Minimum cosine relevance (0-1) for recalling a memory. Higher = stricter; repeats and "
              "closely-related questions still match. Omit to use the memory server's default.",
     )
+    parser.add_argument(
+        "--memory-hit-threshold",
+        type=float,
+        default=None,
+        help="Cosine at/above which a recalled memory is treated as the SAME question and answered "
+             "from memory, skipping the vector search + LLM (default ~0.9).",
+    )
 
     return parser.parse_args()
 
