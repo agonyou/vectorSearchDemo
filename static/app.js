@@ -11,7 +11,26 @@ async function runLoad() {
 }
 
 async function runRag() {
-    return runCommand('ragCmd', 'outputQuery', 'preflightRag');
+    return runCommand('ragCmd', 'outputQuery', 'preflightRag', 'memoryBadge');
+}
+
+// Watch the streamed RAG output for the AI Data Plane markers and show a badge:
+// a green "⚡ from memory" when a repeat short-circuits, else "full RAG" with the total time.
+function updateMemoryBadge(badge, text) {
+    if (!badge) return;
+    const hit = text.match(/Served from memory in ([\d.]+)s/);
+    if (hit) {
+        badge.textContent = '⚡ from memory · ' + hit[1] + 's';
+        badge.className = 'preflight-badge pass';
+        badge.dataset.settled = '1';
+        return;
+    }
+    if (badge.dataset.settled === '1') return;
+    const tot = text.match(/total ([\d.]+)s/);
+    if (tot) {
+        badge.textContent = 'full RAG · ' + tot[1] + 's';
+        badge.className = 'preflight-badge mem-full';
+    }
 }
 
 // Watch the streamed output for the scripts' preflight markers (#2) and reflect them
@@ -33,17 +52,16 @@ function updatePreflightBadge(badge, text) {
     }
 }
 
-async function runCommand(cmdInputId, outputId, badgeId) {
+async function runCommand(cmdInputId, outputId, badgeId, memBadgeId) {
     const cmd = document.getElementById(cmdInputId).value;
     const output = document.getElementById(outputId);
     const badge = badgeId ? document.getElementById(badgeId) : null;
+    const memBadge = memBadgeId ? document.getElementById(memBadgeId) : null;
 
     output.value = '';
     output.scrollTop = 0;
-    if (badge) {
-        badge.textContent = '';
-        badge.className = 'preflight-badge';
-        badge.dataset.settled = '0';
+    for (const b of [badge, memBadge]) {
+        if (b) { b.textContent = ''; b.className = 'preflight-badge'; b.dataset.settled = '0'; }
     }
 
     const res = await fetch('/run', {
@@ -63,6 +81,7 @@ async function runCommand(cmdInputId, outputId, badgeId) {
         output.value += chunk;
         output.scrollTop = output.scrollHeight;
         updatePreflightBadge(badge, output.value);
+        updateMemoryBadge(memBadge, output.value);
     }
 }
 

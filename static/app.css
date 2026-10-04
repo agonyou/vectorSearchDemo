@@ -354,3 +354,6 @@ button:hover {
 .dp-dot.off { background: #ef4444; }
 .dp-name { font-weight: 600; }
 .dp-stat { color: #475569; }
+
+/* "full RAG" variant of the memory badge (blue) — the "⚡ from memory" state reuses .pass (green) */
+.preflight-badge.mem-full { display: inline-block; background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
