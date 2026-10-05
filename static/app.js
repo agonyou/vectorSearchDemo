@@ -107,16 +107,34 @@ function bucketName() {
     return demoBucket || 'vectorSearchDemo';
 }
 
-// Current agent-memory conversation session for RAG runs. "New session" starts a fresh one so
-// memories from a prior demo topic aren't recalled.
-let ragSession = 'default';
+// Agent-memory session base. The effective session is scoped per workflow (hyperscale/composite/
+// hybrid) so memories from one workflow aren't recalled in another — the session updates as part of
+// the workflow the user chooses. "New session" starts a fresh base for all workflows.
+let sessionBase = 'default';
+
+// Which RAG workflow tab is active (hyperscale / composite / hybrid), for display + scoping.
+function activeWorkflow() {
+    if (document.getElementById('tab4') && document.getElementById('tab4').checked) return 'composite';
+    if (document.getElementById('tab6') && document.getElementById('tab6').checked) return 'hybrid';
+    return 'hyperscale';  // tab5, default
+}
+
+// Effective per-workflow session id.
+function sessionFor(workflow) {
+    return `${sessionBase}-${workflow}`;
+}
+
+// Reflect the active workflow's session in the UI.
+function updateSessionDisplay() {
+    const el = document.getElementById('dpSession');
+    if (el) el.textContent = sessionFor(activeWorkflow());
+}
 
 function newSession() {
-    ragSession = 'sess-' + Date.now().toString(36);
-    const el = document.getElementById('dpSession');
-    if (el) el.textContent = ragSession;
+    sessionBase = 'sess-' + Date.now().toString(36);
+    updateSessionDisplay();
     const msg = document.getElementById('dpToggleMsg');
-    if (msg) { msg.textContent = 'Started a fresh session.'; msg.className = 'dp-msg'; }
+    if (msg) { msg.textContent = 'Started a fresh session for all workflows.'; msg.className = 'dp-msg'; }
 }
 
 // Memory recall relevance threshold (0-1) from the UI; blank = memory server default.
@@ -125,9 +143,9 @@ function memoryMinScore() {
     return el ? el.value.trim() : '';
 }
 
-// Append the agent-memory session and (optional) recall threshold to a RAG command.
-function withRagSessionFlags(cmd) {
-    cmd += ` --session ${ragSession}`;
+// Append the per-workflow agent-memory session and (optional) recall threshold to a RAG command.
+function withRagSessionFlags(cmd, workflow) {
+    cmd += ` --session ${sessionFor(workflow)}`;
     const ms = memoryMinScore();
     if (ms !== '') {
         cmd += ` --memory-min-score ${ms}`;
@@ -240,7 +258,7 @@ function setRagCmdComposite() {
         cmd += ` --nprobes ${nprobes}`;
     }
 
-    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd, "composite")));
 }
 
 function setRagCmdHyperscale() {
@@ -262,7 +280,7 @@ function setRagCmdHyperscale() {
         cmd += ` --nprobes ${nprobes}`;
     }
 
-    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd, "hyperscale")));
 }
 
 function setRagCmdHybrid() {
@@ -295,7 +313,7 @@ function setRagCmdHybrid() {
         cmd += ` --num-candidates ${numCandidates}`;
     }
 
-    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd)));
+    setRagCmd(withEmbeddingFlags(withRagSessionFlags(cmd, "hybrid")));
 }
 
 // ---------------------------------------------------------------------------
@@ -467,5 +485,11 @@ setInterval(() => {
 document.addEventListener('DOMContentLoaded', () => {
     const tab = document.getElementById('tab7');
     if (tab) tab.addEventListener('change', () => { if (tab.checked) refreshDataplane(); });
+    // Update the displayed session when the user switches RAG workflow (tabs 4/5/6).
+    for (const id of ['tab4', 'tab5', 'tab6']) {
+        const t = document.getElementById(id);
+        if (t) t.addEventListener('change', updateSessionDisplay);
+    }
+    updateSessionDisplay();
     refreshDataplane();
 });
