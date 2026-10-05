@@ -52,10 +52,37 @@ def augment_context(settings: "config.Settings", session_id: str, prompt: str, c
     return context, n
 
 
+# Phrases that indicate the RAG step couldn't answer. We must NOT cache these: a short-circuit on a
+# later repeat would serve the stale non-answer instead of letting RAG try again.
+_LOW_VALUE_MARKERS = (
+    # "no info in the context" style (phrasing varies a lot across LLM runs)
+    "not contain", "no information", "no relevant", "no matching context",
+    "no usable context", "cannot find", "could not find", "couldn't find",
+    "don't have", "do not have", "doesn't have", "insufficient", "not enough information",
+    "not mention", "no mention", "not provide", "not specify", "not reference",
+    "not include any", "unable to find", "there is no", "there are no",
+    "no specific", "i'm sorry", "i am sorry", "i don't know", "i do not know",
+)
+
+
+def is_low_value_answer(answer: str) -> bool:
+    """True if the answer looks like a RAG failure (empty or 'no info' style)."""
+    a = (answer or "").strip().lower()
+    if not a:
+        return True
+    return any(m in a for m in _LOW_VALUE_MARKERS)
+
+
 def maybe_remember(settings: "config.Settings", session_id: str, prompt: str, answer: str) -> None:
-    """Store this Q&A turn as memory when the AI Data Plane is enabled (best-effort)."""
-    if settings.ai_dataplane_enabled:
-        remember(settings, DEFAULT_USER, session_id, prompt, answer)
+    """Store this Q&A turn as memory when the AI Data Plane is enabled (best-effort). Skips
+    low-value / failed answers so they don't poison later short-circuits."""
+    if not settings.ai_dataplane_enabled:
+        return
+    if is_low_value_answer(answer):
+        LOG = __import__("logging").getLogger("rag")
+        LOG.info("AI Data Plane: not caching a low-value answer for session '%s'", session_id)
+        return
+    remember(settings, DEFAULT_USER, session_id, prompt, answer)
 
 
 def _client(settings: "config.Settings"):
@@ -127,12 +154,33 @@ def memory_phase(settings: "config.Settings", session_id: str, prompt: str,
     result["blocks"] = blocks
     if blocks:
         result["top_score"] = blocks[0]["score"]
-        result["context"] = "\n".join(f"- {b['text']}" for b in blocks)
+        result["context"] = build_memory_context(blocks)
         top = blocks[0]
         if top["score"] >= hit_threshold and top["assistant_content"].strip():
             result["hit"] = True
             result["hit_answer"] = top["assistant_content"].strip()
     return result
+
+
+# Cosine at/above which a recalled memory is strong enough to use as real context. Below this it's
+# shown to the model but explicitly flagged low-relevance, so a different-topic question doesn't get
+# misled by a weakly-related prior turn.
+AUGMENT_STRONG_SCORE = 0.6
+
+
+def build_memory_context(blocks: List[dict]) -> str:
+    """Render recalled memory with per-item relevance scores and an instruction to weight by
+    relevance — so weakly-related memories are visible but discounted rather than treated as fact."""
+    lines = []
+    for b in blocks:
+        score = b["score"]
+        tag = "relevant" if score >= AUGMENT_STRONG_SCORE else "low relevance — likely unrelated"
+        lines.append(f"- [relevance {score:.2f} — {tag}] {b['text']}")
+    guidance = ("The following are recalled memories from earlier in this conversation, each with a "
+                "relevance score (0-1). Use high-relevance items as context; treat low-relevance "
+                "items as probably unrelated and ignore them unless they clearly help. Rely on the "
+                "retrieved documents below for the actual answer.")
+    return guidance + "\n" + "\n".join(lines)
 
 
 def remember(settings: "config.Settings", user_id: str, session_id: str,
