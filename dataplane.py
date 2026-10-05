@@ -11,6 +11,7 @@ degrade gracefully so the plain RAG path always still works.
 
 from __future__ import annotations
 
+import os
 from typing import List, Optional, Tuple
 
 import config
@@ -164,8 +165,10 @@ def memory_phase(settings: "config.Settings", session_id: str, prompt: str,
 
 # Cosine at/above which a recalled memory is strong enough to use as real context. Below this it's
 # shown to the model but explicitly flagged low-relevance, so a different-topic question doesn't get
-# misled by a weakly-related prior turn.
-AUGMENT_STRONG_SCORE = 0.6
+# misled by a weakly-related prior turn. 0.7 keeps same-topic recalls "relevant" while borderline
+# cross-topic ones (e.g. "movies about escapes" vs "movies about cars" ≈ 0.63 with MiniLM) read as
+# low relevance. Override with AGENTMEMORY_STRONG_SCORE.
+AUGMENT_STRONG_SCORE = float(os.getenv("AGENTMEMORY_STRONG_SCORE", "0.7"))
 
 
 def build_memory_context(blocks: List[dict]) -> str:
