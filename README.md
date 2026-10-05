@@ -303,6 +303,25 @@ docker run -d --name agentmemory-server --env-file .env \
 
 Either way, point `AGENT_MEMORY_BASE_URL` at `http://localhost:8090`.
 
+## Using agent memory with RAG
+
+Turn it on with the global toggle (web UI, AI Services tab) or `AI_DATAPLANE_ENABLED=true` in `.env`. When enabled, each RAG query first recalls relevant prior turns and, after answering, remembers the new Q&A. You'll see this in the output:
+
+- **Related question** → recalled memories are prepended to the RAG context, each labeled with a relevance score (0–1) and a strong/low-relevance tag so the model discounts weakly-related ones; the full RAG query still runs.
+- **Repeat / near-duplicate question** → answered directly from memory, **skipping the vector search + LLM** — e.g. `⚡ Served from memory in 1.1s — skipped the vector search + LLM call`. (In the web UI this shows as a **⚡ from memory** badge next to Run.)
+- Every full run also prints a timing/token breakdown (`memory recall / embed / vector query / LLM / total`).
+
+### Sessions are scoped per workflow
+
+A **session** groups a conversation so memories are recalled within it. The session updates as part of the workflow you choose: each workflow (Hyperscale / Composite / Hybrid) uses its own session (`<base>-hyperscale`, `<base>-composite`, `<base>-hybrid`), so memories from a movies chat aren't recalled during a Yelp chat. In the web UI the active session is shown on the AI Services tab and updates when you switch RAG tabs; **New session** starts a fresh base for all workflows. On the CLI, pass `--session <id>` (default `default`).
+
+### Tuning recall
+
+- **`--memory-min-score <0-1>`** (UI: *Memory recall threshold*): minimum cosine for a memory to be recalled at all. Higher = stricter; repeats and closely-related questions still match. Default comes from the server (`AGENTMEMORY_MIN_SCORE`, 0.2).
+- **`--memory-hit-threshold <0-1>`**: cosine at/above which a memory is treated as the *same* question and answered from memory (short-circuit). Default ~0.9.
+- **`AGENTMEMORY_STRONG_SCORE`** (default 0.7): at/above this a recalled memory is labeled "relevant"; below it is shown but flagged "low relevance" so the model discounts it.
+- Failed answers ("the context doesn't contain that") are **not** cached, so a later repeat re-runs RAG instead of replaying a non-answer.
+
 # Step 1: Loading the data
 
 The data must first be loaded into Couchbase. The `load.py` script will load data into Couchbase, giving them embeddings with the specified model (configuration in `.env`).
