@@ -437,7 +437,7 @@ def main():
 
     context = "\n\n---\n\n".join(formatted_chunks)
     if mem["context"]:
-        context = f"Relevant memory from earlier:\n{mem['context']}\n\n---\n\n{context}"
+        context = f"{mem['context']}\n\n--- Retrieved documents ---\n\n{context}"
 
     print("\n=== Context to Augment with ===\n")
     print(context)
